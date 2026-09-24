@@ -40,9 +40,7 @@ def con(tmp_path: Path) -> duckdb.DuckDBPyConnection:
     _write(c, LEFT, tmp_path / "l.parquet")
     _write(c, [r for r in RIGHT if r[0].startswith("S2")], tmp_path / "r2.parquet")
     _write(c, [r for r in RIGHT if r[0].startswith("S3")], tmp_path / "r3.parquet")
-    register_inputs(
-        c, str(tmp_path / "l.parquet"), [str(tmp_path / "r2.parquet"), str(tmp_path / "r3.parquet")]
-    )
+    register_inputs(c, str(tmp_path / "l.parquet"), [str(tmp_path / "r2.parquet"), str(tmp_path / "r3.parquet")])
     return c
 
 
@@ -67,9 +65,7 @@ def test_candidates_never_cross_country(con: duckdb.DuckDBPyConnection) -> None:
 def test_per_right_cap_bounds_output(con: duckdb.DuckDBPyConnection) -> None:
     """No right record has more than final_top_k candidates."""
     run_blocking(con, BlockingConfig(sn_window=3, final_top_k=1, buckets=2))
-    worst = con.execute(
-        "SELECT max(n) FROM (SELECT rid, count(*) n FROM candidates GROUP BY rid)"
-    ).fetchone()[0]
+    worst = con.execute("SELECT max(n) FROM (SELECT rid, count(*) n FROM candidates GROUP BY rid)").fetchone()[0]
     assert worst == 1
 
 

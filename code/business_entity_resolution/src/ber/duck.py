@@ -67,9 +67,7 @@ def as_view(con: duckdb.DuckDBPyConnection, obj: TableLike, columns: tuple[str, 
     elif isinstance(obj, pa.Table):
         con.register(name, obj)
     else:
-        raise TypeError(
-            f"unsupported table input {type(obj).__name__}; use a name, relation or pyarrow Table"
-        )
+        raise TypeError(f"unsupported table input {type(obj).__name__}; use a name, relation or pyarrow Table")
     have = {r[0] for r in con.execute(f"DESCRIBE {name}").fetchall()}
     missing = [c for c in columns if c not in have]
     if missing:

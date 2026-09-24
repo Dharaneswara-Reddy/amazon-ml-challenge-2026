@@ -41,9 +41,7 @@ def load_matrix(path: Path, with_label: bool = True) -> tuple[np.ndarray, np.nda
     return x, y, tbl.select(["lid", "rid"])
 
 
-def train(
-    fit_path: Path, valid_path: Path, params: dict, seed: int, threads: int, rounds: int = 2000
-) -> lgb.Booster:
+def train(fit_path: Path, valid_path: Path, params: dict, seed: int, threads: int, rounds: int = 2000) -> lgb.Booster:
     """Train a binary LightGBM on fit_path with early stopping on valid_path; return the booster at best iteration."""
     x_fit, y_fit, _ = load_matrix(fit_path)
     x_val, y_val, _ = load_matrix(valid_path)
@@ -59,9 +57,7 @@ def train(
         valid_names=["valid"],
         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(100)],
     )
-    log.info(
-        "trained lightgbm best_iteration=%d best_score=%s", booster.best_iteration, dict(booster.best_score)
-    )
+    log.info("trained lightgbm best_iteration=%d best_score=%s", booster.best_iteration, dict(booster.best_score))
     return booster
 
 
@@ -74,9 +70,7 @@ def predict_file(booster: lgb.Booster, feat_path: Path, out_path: Path, batch_ro
     n = 0
     try:
         for batch in pf.iter_batches(batch_size=batch_rows, columns=cols):
-            x = np.column_stack(
-                [batch.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in FEATURES]
-            )
+            x = np.column_stack([batch.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in FEATURES])
             p = booster.predict(x, num_iteration=booster.best_iteration or None).astype(np.float32)
             arrays = [batch.column("lid"), batch.column("rid"), pa.array(p)]
             names = ["lid", "rid", "p"]

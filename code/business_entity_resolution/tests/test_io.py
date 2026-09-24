@@ -131,8 +131,6 @@ def test_gt_rejects_bad_tokens(cfg, root: Path, con) -> None:
     """Empty tokens (double comma) or S1 ids inside a GT list fail loudly."""
     make_dataset(root)
     for body in ("S1-1\tS2-1,,S3-1\n", "S1-1\tS1-7\n"):
-        write_text(
-            root / "dataset/train/train_ground_truth.tsv", "source1_entity_id\tmatched_entity_ids\n" + body
-        )
+        write_text(root / "dataset/train/train_ground_truth.tsv", "source1_entity_id\tmatched_entity_ids\n" + body)
         with pytest.raises(ValueError, match="not S2-/S3-"):
             io.convert_ground_truth(con, io.gt_tsv_path(cfg), io.gt_pairs_path(cfg), io.gt_s1_path(cfg))

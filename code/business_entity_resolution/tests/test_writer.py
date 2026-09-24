@@ -46,12 +46,8 @@ def make_test_dir(root: Path) -> Path:
     """Write a tiny synthetic test split for the validator."""
     d = root / "synthetic_test"
     write_text(d / "test_source1.tsv", SOURCE_HEADER + "".join(f"{i}\tn\ta\tUS\n" for i in S1))
-    write_text(
-        d / "test_source2.tsv", SOURCE_HEADER + "".join(f"{i}\tn\ta\tUS\n" for i in RIGHT if i[1] == "2")
-    )
-    write_text(
-        d / "test_source3.tsv", SOURCE_HEADER + "".join(f"{i}\tn\ta\tUS\n" for i in RIGHT if i[1] == "3")
-    )
+    write_text(d / "test_source2.tsv", SOURCE_HEADER + "".join(f"{i}\tn\ta\tUS\n" for i in RIGHT if i[1] == "2"))
+    write_text(d / "test_source3.tsv", SOURCE_HEADER + "".join(f"{i}\tn\ta\tUS\n" for i in RIGHT if i[1] == "3"))
     return d
 
 

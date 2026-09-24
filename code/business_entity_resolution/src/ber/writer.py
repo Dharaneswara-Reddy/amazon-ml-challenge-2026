@@ -94,9 +94,7 @@ def check_inputs(con: duckdb.DuckDBPyConnection, s1: str, cand: str, match: str,
         raise ValueError("write_outputs input check failed:\n  " + "\n  ".join(problems))
 
 
-def _write_list_file(
-    con: duckdb.DuckDBPyConnection, s1: str, pairs: str, header: tuple[str, str], path: Path
-) -> None:
+def _write_list_file(con: duckdb.DuckDBPyConnection, s1: str, pairs: str, header: tuple[str, str], path: Path) -> None:
     """COPY one id-list TSV atomically: one row per S1 id, sorted rows and sorted comma-joined ids."""
     tmp = path.with_name(path.name + ".tmp")
     tmp.unlink(missing_ok=True)

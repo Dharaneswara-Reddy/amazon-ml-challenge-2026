@@ -23,6 +23,7 @@ SN_KEYS = {
     "sn_plain": "name_core",
     "sn_rev": "reverse(name_core)",
     "sn_sorted": "array_to_string(list_sort(string_split(name_core, ' ')), ' ')",
+    "sn_skel": "name_skel",
 }
 
 

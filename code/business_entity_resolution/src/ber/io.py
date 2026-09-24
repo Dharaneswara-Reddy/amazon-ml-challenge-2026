@@ -88,17 +88,12 @@ def read_tsv_sql(path: Path, columns: tuple[str, ...]) -> str:
 def source_select_sql(path: Path, source: int) -> str:
     """SELECT producing the canonical source table (4 decoded columns + ``source`` TINYINT) from a TSV."""
     fields = ", ".join(f"{decode_field(c)} AS {c}" for c in SOURCE_COLUMNS)
-    return (
-        f"SELECT {fields}, CAST({int(source)} AS TINYINT) AS source FROM {read_tsv_sql(path, SOURCE_COLUMNS)}"
-    )
+    return f"SELECT {fields}, CAST({int(source)} AS TINYINT) AS source FROM {read_tsv_sql(path, SOURCE_COLUMNS)}"
 
 
 def id_list_select_sql(path: Path) -> str:
     """SELECT (s1_id, ids) from any 2-column id-list TSV (ground truth, matching or candidate file)."""
-    return (
-        f"SELECT {decode_field('a')} AS s1_id, {decode_field('b')} AS ids "
-        f"FROM {read_tsv_sql(path, ('a', 'b'))}"
-    )
+    return f"SELECT {decode_field('a')} AS s1_id, {decode_field('b')} AS ids FROM {read_tsv_sql(path, ('a', 'b'))}"
 
 
 def explode_ids_sql(inner: str) -> str:
@@ -197,9 +192,7 @@ def convert_source(con: duckdb.DuckDBPyConnection, src: Path, out: Path, source:
     return stats
 
 
-def convert_ground_truth(
-    con: duckdb.DuckDBPyConnection, src: Path, out_pairs: Path, out_s1: Path
-) -> dict[str, Any]:
+def convert_ground_truth(con: duckdb.DuckDBPyConnection, src: Path, out_pairs: Path, out_s1: Path) -> dict[str, Any]:
     """Convert the GT TSV to (s1_id, match_id) pairs and (s1_id, n_matches) Parquet; verify and return stats.
 
     Raises ValueError on header/row-count mismatch, non-S1 keys, empty list tokens or non-S2/S3 matches.
@@ -332,9 +325,7 @@ def open_parquet(con: duckdb.DuckDBPyConnection, path: Path) -> duckdb.DuckDBPyR
     return con.read_parquet(str(path))
 
 
-def open_source(
-    con: duckdb.DuckDBPyConnection, cfg: Config, split: str, source: int
-) -> duckdb.DuckDBPyRelation:
+def open_source(con: duckdb.DuckDBPyConnection, cfg: Config, split: str, source: int) -> duckdb.DuckDBPyRelation:
     """Relation over ``raw_{split}_s{source}.parquet``.
 
     Columns: entity_id, business_name, business_address, country, source.

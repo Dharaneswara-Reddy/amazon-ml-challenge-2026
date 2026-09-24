@@ -62,9 +62,7 @@ def package_versions() -> dict[str, str | None]:
 
 def data_fingerprints(data_dir: Path) -> dict[str, Any]:
     """Return size + mtime for every organizer TSV under ``data_dir/{train,test}`` (no content hashing)."""
-    return {
-        str(p.relative_to(data_dir)): input_fingerprint(p) for p in sorted(Path(data_dir).glob("*/*.tsv"))
-    }
+    return {str(p.relative_to(data_dir)): input_fingerprint(p) for p in sorted(Path(data_dir).glob("*/*.tsv"))}
 
 
 def write_manifest(run_dir: Path, cfg: Config | None = None, **fields: Any) -> Path:

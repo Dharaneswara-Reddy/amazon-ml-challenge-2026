@@ -74,9 +74,7 @@ FEATURES = SQL_FEATURES + PY_FEATURES
 def _jacc(a: str, b: str) -> str:
     """Return SQL for token-set Jaccard between two space-separated string columns."""
     sa, sb = f"list_distinct(string_split({a}, ' '))", f"list_distinct(string_split({b}, ' '))"
-    return (
-        f"len(list_intersect({sa}, {sb}))::FLOAT / greatest(len(list_distinct(list_concat({sa}, {sb}))), 1)"
-    )
+    return f"len(list_intersect({sa}, {sb}))::FLOAT / greatest(len(list_distinct(list_concat({sa}, {sb}))), 1)"
 
 
 def pair_frame_sql(label_sql: str | None = None, where_sql: str | None = None) -> str:
@@ -103,6 +101,7 @@ def pair_frame_sql(label_sql: str | None = None, where_sql: str | None = None) -
     SELECT c.lid, c.rid,
       l.name_norm AS l_name_norm, r.name_norm AS r_name_norm,
       l.name_core AS l_name_core, r.name_core AS r_name_core,
+      l.name_skel AS l_name_skel, r.name_skel AS r_name_skel,
       l.addr_norm AS l_addr_norm, r.addr_norm AS r_addr_norm,
       l.postal AS l_postal, r.postal AS r_postal,
       l.addr_nums AS l_addr_nums, r.addr_nums AS r_addr_nums,
@@ -167,6 +166,8 @@ def python_features(batch: pa.RecordBatch, workers: int) -> dict[str, np.ndarray
             "r_name_norm",
             "l_name_core",
             "r_name_core",
+            "l_name_skel",
+            "r_name_skel",
             "l_addr_norm",
             "r_addr_norm",
             "l_postal",
@@ -190,6 +191,8 @@ def python_features(batch: pa.RecordBatch, workers: int) -> dict[str, np.ndarray
         "addr_partial": _cp(col["l_addr_norm"], col["r_addr_norm"], fuzz.partial_ratio, workers),
         "addr_jw": _cp(col["l_addr_norm"], col["r_addr_norm"], jw, workers),
         "postal_state": _postal_state(col["l_postal"], col["r_postal"]),
+        "skel_ratio": _cp(col["l_name_skel"], col["r_name_skel"], fuzz.ratio, workers),
+        "skel_jw": _cp(col["l_name_skel"], col["r_name_skel"], jw, workers),
     }
     f["nums_shared"], f["nums_conflict"] = _nums(col["l_addr_nums"], col["r_addr_nums"])
     f["first_tok_eq"] = np.fromiter(

@@ -8,41 +8,41 @@ import pyarrow.parquet as pq
 from ber.blocking import BlockingConfig, register_inputs, run_blocking
 from ber.features import FEATURES, write_features
 
-COLS = "entity_id, name_norm, name_core, addr_norm, postal, addr_nums, script, country_norm"
+COLS = "entity_id, name_norm, name_core, name_skel, addr_norm, postal, addr_nums, script, country_norm"
 LEFT = [
     (
         "S1-1",
         "ram marketing pvt ltd",
         "ram marketing",
+        "rm mrktng",
         "12 mg road bangalore 560001",
         "560001",
         "12",
         "latin",
         "india",
     ),
-    ("S1-2", "west siddhi corp", "west siddhi", "3109 sunshine drive clinton md", "", "3109", "latin", "us"),
+    ("S1-2", "west siddhi corp", "west siddhi", "wst sdh", "3109 sunshine drive clinton md", "", "3109", "latin", "us"),
 ]
 RIGHT = [
     (
         "S2-1",
         "ram marketing private limited",
         "ram marketing",
+        "rm mrktng",
         "12 m g road bengaluru 560001",
         "560001",
         "12",
         "latin",
         "india",
     ),
-    ("S3-1", "west siddhi", "west siddhi", "", "", "", "latin", "us"),
-    ("S3-2", "ram textiles", "ram textiles", "44 ring road delhi 110001", "110001", "44", "latin", "india"),
+    ("S3-1", "west siddhi", "west siddhi", "wst sdh", "", "", "", "latin", "us"),
+    ("S3-2", "ram textiles", "ram textiles", "rm txtls", "44 ring road delhi 110001", "110001", "44", "latin", "india"),
 ]
 
 
 def _write(con: duckdb.DuckDBPyConnection, rows: list[tuple], path: Path) -> None:
     """Write normalized rows to parquet."""
-    con.execute(
-        f"CREATE OR REPLACE TEMP TABLE t AS SELECT * FROM (VALUES {', '.join(map(str, rows))}) v({COLS})"
-    )
+    con.execute(f"CREATE OR REPLACE TEMP TABLE t AS SELECT * FROM (VALUES {', '.join(map(str, rows))}) v({COLS})")
     con.execute(f"COPY t TO '{path}' (FORMAT parquet)")
 
 
