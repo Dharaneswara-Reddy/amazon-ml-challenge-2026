@@ -83,5 +83,21 @@ def run(command: str, timeout: float) -> int:
     return code
 
 
+def upload(local: str, remote: str) -> None:
+    """Upload a local file to the notebook, `remote` relative to ~/SageMaker, via the Jupyter contents API."""
+    import base64
+
+    s, base = login()
+    with open(local, "rb") as fh:
+        body = {"type": "file", "format": "base64", "content": base64.b64encode(fh.read()).decode()}
+    r = s.put(f"{base}/api/contents/{remote}", json=body, headers={"X-XSRFToken": s.cookies.get("_xsrf", "")},
+              timeout=600)
+    r.raise_for_status()
+    sys.stdout.write(f"uploaded {local} -> ~/SageMaker/{remote} ({r.json().get('size')} bytes)\n")
+
+
 if __name__ == "__main__":
+    if sys.argv[1] == "--upload":
+        upload(sys.argv[2], sys.argv[3])
+        sys.exit(0)
     sys.exit(run(sys.argv[1], float(os.environ.get("NB_TIMEOUT", "900"))))
