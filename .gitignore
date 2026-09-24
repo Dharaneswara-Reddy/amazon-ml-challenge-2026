@@ -1,0 +1,17 @@
+dataset/**
+!dataset/**/
+!dataset/**/.gitkeep
+output/*.tsv
+*.zip
+
+.env
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+models/
+*.pkl
+*.joblib
+*.bin
+*.safetensors
