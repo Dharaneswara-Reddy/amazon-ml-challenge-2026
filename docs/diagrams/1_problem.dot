@@ -1,0 +1,20 @@
+digraph problem {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.35; ranksep=0.9;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, penwidth=1.2];
+  edge [fontname="Helvetica", fontsize=10, color="#555555"];
+  subgraph cluster_s1 { label="Source 1  (clean reference)\n2.2M train / 1.73M test"; fontname="Helvetica-Bold"; fontsize=13; style="rounded,filled"; fillcolor="#e8f1fb"; color="#4a7fc1";
+    s1 [label="S1-00001\nRam Marketing Private Limited\nKH No. 570/13, New Delhi", fillcolor="#ffffff"];
+    s1b [label="S1-00002\nWest Siddhi Corp\n3109 Sunshine Drive, Clinton, MD", fillcolor="#ffffff"];
+    s1c [label="S1-00003\nSharma Traders\n(no true match = singleton)", fillcolor="#ffffff"];
+  }
+  subgraph cluster_r { label="Sources 2 + 3  (noisy copies)\n~10M records per split, 26% match nothing"; fontname="Helvetica-Bold"; fontsize=13; style="rounded,filled"; fillcolor="#fdf1e4"; color="#d08a3a";
+    a [label="S2-47\nराम मार्केटिंग प्राइवेट लिमिटेड\n(Hindi script)", fillcolor="#ffffff"];
+    b [label="S3-812\n-- Ram Marketng Pvt Ltd\nKH NO. -570/13, DELHI", fillcolor="#ffffff"];
+    c [label="S2-193\nWest Siddhi Córp\n3109 SUNSHINE DR, CLINTON, MD", fillcolor="#ffffff"];
+    d [label="S3-999\nSharma Textiles\n(different business!)", fillcolor="#ffffff"];
+  }
+  s1 -> a [label="match", color="#2e8b57", penwidth=2];
+  s1 -> b [label="match", color="#2e8b57", penwidth=2];
+  s1b -> c [label="match", color="#2e8b57", penwidth=2];
+  s1c -> d [label="NOT a match\n(false merge costs 2x)", color="#c0392b", style=dashed, fontcolor="#c0392b"];
+}

@@ -1,0 +1,15 @@
+digraph pipeline {
+  rankdir=TB; bgcolor="white"; pad=0.3; nodesep=0.3; ranksep=0.35;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, width=4.6, penwidth=1.2];
+  edge [color="#555555", arrowsize=0.8];
+  raw [label="Organizer TSVs  (2.4 GB, 24M records)", fillcolor="#eeeeee"];
+  prep [label="1. prepare — TSV → Parquet, exact row-count checks\n60 s · 664 MB peak  ✅", fillcolor="#d9f2e3"];
+  norm [label="2. normalize — transliterate 9 scripts, fold accents, strip junk,\ncanonicalize abbreviations, consonant skeleton\n11 min · 950 MB peak  ✅", fillcolor="#d9f2e3"];
+  block [label="3. block — same-country candidate generation\nrare-token pass + 4 sorted-neighbourhood passes\ntop-5 Source-1 candidates per noisy record  ⏳ running", fillcolor="#fff4cc"];
+  feat [label="4. features — ~40 per pair: name/address similarity,\nskeleton similarity, house numbers, rank vs competitors", fillcolor="#e8f1fb"];
+  model [label="5. LightGBM classifier  (MIT, CPU)\nP(same business)", fillcolor="#e8f1fb"];
+  dec [label="6. decision — each noisy record goes to its single best\nSource-1 candidate, only if P ≥ threshold (tuned for F0.5)", fillcolor="#e8f1fb"];
+  out [label="7. write + validate — matching_results.tsv, candidate_pairs.tsv\nstrict writer + organizer validator", fillcolor="#e8f1fb"];
+  sub [label="8. submit — freeze in submissions/ + code zip, upload (≤5/day)", fillcolor="#fde2e2"];
+  raw -> prep -> norm -> block -> feat -> model -> dec -> out -> sub;
+}

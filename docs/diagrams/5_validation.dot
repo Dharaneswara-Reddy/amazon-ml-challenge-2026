@@ -1,0 +1,13 @@
+digraph validation {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.3; ranksep=0.8;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, penwidth=1.2];
+  edge [color="#555555", fontname="Helvetica", fontsize=10];
+  s1 [label="2.2M train Source-1 entities\nbucket = md5(entity_id) mod 100\n(all pairs of one entity stay together)", fillcolor="#eeeeee"];
+  fit [label="fit  · buckets 0–9  (~220k entities)\ntrain LightGBM", fillcolor="#e8f1fb"];
+  tune [label="tune  · buckets 10–14  (~110k)\nearly stopping + pick threshold for F0.5", fillcolor="#fff4cc"];
+  hold [label="holdout  · buckets 15–19  (~110k)\nhonest local score, threshold locked", fillcolor="#d9f2e3"];
+  rest [label="buckets 20–99\nspare for later experiments", fillcolor="#f7f7f7", fontcolor="#777777"];
+  s1 -> fit; s1 -> tune; s1 -> hold; s1 -> rest [style=dotted];
+  test [label="Test set (1.73M)\npredicted once with the locked model + threshold\npublic leaderboard = sanity check only", fillcolor="#fde2e2"];
+  hold -> test [label="  same model + threshold"];
+}

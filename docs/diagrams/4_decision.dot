@@ -1,0 +1,13 @@
+digraph decision {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.4; ranksep=1.0;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, penwidth=1.2];
+  edge [fontname="Helvetica", fontsize=11];
+  r [label="Noisy record\nS3-812", fillcolor="#fdf1e4"];
+  a [label="S1-00001\nP = 0.94", fillcolor="#d9f2e3"];
+  b [label="S1-00417\nP = 0.61", fillcolor="#eeeeee"];
+  c [label="S1-09001\nP = 0.08", fillcolor="#eeeeee"];
+  r -> a [label=" best & P ≥ threshold → MATCH", color="#2e8b57", penwidth=2.2, fontcolor="#2e8b57"];
+  r -> b [label=" not the best → dropped", color="#999999", style=dashed];
+  r -> c [label=" not the best → dropped", color="#999999", style=dashed];
+  note [shape=note, fillcolor="#fffbe6", label="Why: in train, every noisy record belongs to\nat most ONE Source-1 entity (0 exceptions in 7.6M pairs).\nThreshold is tuned directly on macro F0.5, so singletons\n(predict nothing = 1.0) are protected."];
+}

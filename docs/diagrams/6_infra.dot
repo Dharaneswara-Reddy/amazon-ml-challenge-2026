@@ -1,0 +1,13 @@
+digraph infra {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.4; ranksep=0.9;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, penwidth=1.2];
+  edge [fontname="Helvetica", fontsize=10, color="#555555"];
+  laptop [label="Laptop  (12 cores, 15 GB, ~3 GB free)\ncode, tests, small experiments\nClaude Code", fillcolor="#e8f1fb"];
+  gh [label="GitHub (private)\namazon-ml-challenge-2026", fillcolor="#eeeeee"];
+  nb [label="SageMaker notebook  ml-challenge-2026\nml.m5.4xlarge  (16 vCPU, 64 GB, 50 GB disk)\nfull-data runs: normalize → block → features → train → predict\n~$0.92/h from credits · stopped when idle", fillcolor="#fdf1e4"];
+  out [label="output/*.tsv + code zip\n→ Unstop portal (≤5/day)", fillcolor="#d9f2e3"];
+  laptop -> gh [label="git push"];
+  laptop -> nb [label="git bundle + commands\n(scripts/notebook_exec.py)"];
+  nb -> out;
+  never [shape=note, fillcolor="#fde2e2", label="Never: endpoints, AWS Organization,\nexternal data/APIs, committing the dataset"];
+}

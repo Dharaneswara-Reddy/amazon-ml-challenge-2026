@@ -1,0 +1,12 @@
+digraph funnel {
+  rankdir=TB; bgcolor="white"; pad=0.3; ranksep=0.3;
+  node [shape=box, style="filled", fontname="Helvetica", fontsize=12, penwidth=0];
+  edge [color="#777777", arrowsize=0.7];
+  all [label="All possible pairs:  2.2M × 10.3M = 22.8 trillion   (impossible)", fillcolor="#f4c7c3", width=8.5];
+  ctry [label="Same country only  (100% of true pairs share a country)", fillcolor="#f8d9c4", width=7.5];
+  pass [label="Blocking passes:  rare shared name tokens (≤300 occurrences → ~111M raw pairs)\n+ sorted neighbourhood on name / reversed / word-sorted / skeleton (±3 neighbours)", fillcolor="#fbe7b5", width=6.7];
+  topk [label="Keep top-5 Source-1 candidates per noisy record  →  ≤ 51.6M pairs", fillcolor="#e3f0c8", width=5.5];
+  model [label="Model scores every candidate", fillcolor="#cfe8d8", width=4.0];
+  final [label="≤ 1 match per noisy record  →  final matches", fillcolor="#b9dfc9", width=3.6];
+  all -> ctry -> pass -> topk -> model -> final;
+}
