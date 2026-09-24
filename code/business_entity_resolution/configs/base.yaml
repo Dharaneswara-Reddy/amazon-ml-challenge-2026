@@ -13,3 +13,15 @@ engine:
   duckdb_threads: 2
   workers: 2                   # processes for Python-side normalization/features
   batch_rows: 200000
+
+blocking:
+  token_min_len: 2
+  token_df_cap: 300          # skip name tokens more frequent than this (per country, per side)
+  token_top_k: 5             # left candidates kept per right record from the token pass
+  sn_window: 3               # sorted-neighbourhood window per side
+  sn_keys: [sn_plain, sn_rev, sn_sorted]
+  final_top_k: 5             # left candidates kept per right record after union
+  buckets: 16                # hash buckets for the token join (bounds memory)
+
+model:
+  params: {}                 # overrides of ber.model.DEFAULT_PARAMS

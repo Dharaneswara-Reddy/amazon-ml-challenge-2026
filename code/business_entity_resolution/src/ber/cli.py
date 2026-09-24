@@ -102,13 +102,9 @@ def run_score(args: argparse.Namespace, cfg: Config) -> int:
 
 def add_validate_output(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber validate-output``."""
-    p.add_argument(
-        "--out-dir", type=Path, default=None, help="dir with both TSVs (default: paths.output_dir)"
-    )
+    p.add_argument("--out-dir", type=Path, default=None, help="dir with both TSVs (default: paths.output_dir)")
     p.add_argument("--test-dir", type=Path, default=None, help="default: <data_dir>/test")
-    p.add_argument(
-        "--check-ids", action="store_true", help="pass --check-ids (loads all test S2/S3 ids; GBs)"
-    )
+    p.add_argument("--check-ids", action="store_true", help="pass --check-ids (loads all test S2/S3 ids; GBs)")
 
 
 def validator_command(cfg: Config, out_dir: Path, test_dir: Path, check_ids: bool) -> list[str]:
@@ -135,8 +131,69 @@ def run_validate_output(args: argparse.Namespace, cfg: Config) -> int:
     return subprocess.run(cmd, cwd=cfg.root, check=False).returncode
 
 
+def add_split(p: argparse.ArgumentParser) -> None:
+    """Arguments for stages that run per split."""
+    p.add_argument("--split", choices=("train", "test"), required=True)
+    p.add_argument("--force", action="store_true", help="recompute even if the output exists (normalize only)")
+
+
+def run_normalize(args: argparse.Namespace, cfg: Config) -> int:
+    """Normalize all three sources of a split."""
+    from ber.pipeline import normalize_stage
+
+    _emit(normalize_stage(cfg, args.split, args.force), None)
+    return 0
+
+
+def run_block(args: argparse.Namespace, cfg: Config) -> int:
+    """Generate blocking candidates for a split and report recall (train) and volume."""
+    from ber.pipeline import block_stage
+
+    _emit(block_stage(cfg, args.split), None)
+    return 0
+
+
+def run_features(args: argparse.Namespace, cfg: Config) -> int:
+    """Compute pair features for a split's candidates."""
+    from ber.pipeline import features_stage
+
+    _emit(features_stage(cfg, args.split), None)
+    return 0
+
+
+def add_train(p: argparse.ArgumentParser) -> None:
+    """Arguments for ``ber train``."""
+    p.add_argument("--name", default="lgbm", help="run name suffix")
+
+
+def run_train(args: argparse.Namespace, cfg: Config) -> int:
+    """Train, tune the threshold, and score the holdout; print the run dir."""
+    from ber.pipeline import train_stage
+
+    _emit({"run_dir": str(train_stage(cfg, args.name))}, None)
+    return 0
+
+
+def add_predict(p: argparse.ArgumentParser) -> None:
+    """Arguments for ``ber predict``."""
+    p.add_argument("--run", type=Path, required=True, help="run dir produced by ber train")
+
+
+def run_predict(args: argparse.Namespace, cfg: Config) -> int:
+    """Score test candidates with a trained run and write both submission files."""
+    from ber.pipeline import predict_stage
+
+    _emit(predict_stage(cfg, args.run), None)
+    return 0
+
+
 COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("prepare", "convert organizer TSVs to the Parquet cache", add_prepare, run_prepare),
+    ("normalize", "normalize names/addresses of a split", add_split, run_normalize),
+    ("block", "generate blocking candidates for a split", add_split, run_block),
+    ("features", "compute pair features for a split", add_split, run_features),
+    ("train", "train model, tune threshold, score holdout", add_train, run_train),
+    ("predict", "predict test and write submission files", add_predict, run_predict),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
 ]
@@ -148,9 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--config", type=Path, default=argparse.SUPPRESS, help=f"base config YAML (default: {DEFAULT_CONFIG})"
     )
-    common.add_argument(
-        "--override", type=Path, default=argparse.SUPPRESS, help="YAML deep-merged over --config"
-    )
+    common.add_argument("--override", type=Path, default=argparse.SUPPRESS, help="YAML deep-merged over --config")
     common.add_argument("--root", type=Path, default=argparse.SUPPRESS, help="repo root for relative paths")
     common.add_argument("--log-file", type=Path, default=argparse.SUPPRESS, help="also log to this file")
     parser = argparse.ArgumentParser(prog="ber", description=__doc__, parents=[common])
@@ -166,9 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     """Parse ``argv``, load config, set up logging and dispatch to the subcommand; return an exit code."""
     args = build_parser().parse_args(argv)
     setup_logging(getattr(args, "log_file", None))
-    cfg = load_config(
-        getattr(args, "config", None), getattr(args, "override", None), getattr(args, "root", None)
-    )
+    cfg = load_config(getattr(args, "config", None), getattr(args, "override", None), getattr(args, "root", None))
     log.info(kv(event="cli_start", command=args.command, config_hash=config_hash(cfg), root=cfg.root))
     return int(args.func(args, cfg))
 
