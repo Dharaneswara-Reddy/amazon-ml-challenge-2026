@@ -19,3 +19,4 @@ models/
 artifacts/
 *.egg-info/
 submissions/**/*.tsv
+.claude/worktrees/
