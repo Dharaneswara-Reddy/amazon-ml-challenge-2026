@@ -113,15 +113,17 @@ def stage(name: str, logger: logging.Logger | None = None, **fields: Any) -> Ite
         lg.log(
             logging.INFO if status == "ok" else logging.ERROR,
             kv(
-                event="stage_end",
-                stage=name,
-                status=status,
-                seconds=round(time.perf_counter() - t0, 3),
-                rss_start_mb=round(rss0, 1),
-                rss_end_mb=round(rss_mb(), 1),
-                stage_peak_rss_mb=round(peak, 1),
-                peak_rss_delta_mb=round(max_rss_mb() - maxrss0, 1),
-                **fields,
-                **extra,
+                **{
+                    **fields,
+                    **extra,
+                    "event": "stage_end",
+                    "stage": name,
+                    "status": status,
+                    "seconds": round(time.perf_counter() - t0, 3),
+                    "rss_start_mb": round(rss0, 1),
+                    "rss_end_mb": round(rss_mb(), 1),
+                    "stage_peak_rss_mb": round(peak, 1),
+                    "peak_rss_delta_mb": round(max_rss_mb() - maxrss0, 1),
+                }
             ),
         )

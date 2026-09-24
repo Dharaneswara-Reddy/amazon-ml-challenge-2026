@@ -128,7 +128,7 @@ def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str
 
 
 def find_repo_root(start: Path | None = None) -> Path:
-    """Walk up from ``start`` (default: cwd, then this file) to the first dir holding ``dataset/`` and ``code/``."""
+    """Walk up from ``start`` (default: cwd, then this file) to the dir with ``dataset/`` and ``code/``."""
     starts = [start] if start is not None else [Path.cwd(), Path(__file__).resolve().parent]
     for s in starts:
         for d in [s.resolve(), *s.resolve().parents]:
