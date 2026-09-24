@@ -19,9 +19,12 @@ Only one person logs into the portal per device; never share portal sessions.
 ## Submission budget and history
 - Max 5 leaderboard uploads per day, window ends 27 Sep 2026 23:59 IST. Never upload without passing `validate_submission.py`
   and a local F0.5 improvement worth spending a slot on.
+- Each portal upload has two parts: `matching_results.tsv` AND a code zip. The code zip must be the exact code that
+  produced that TSV (build it from the same git commit; never zip a dirty working tree).
 - Every upload gets a folder `submissions/<NN>_<YYYYMMDD-HHMM>/` holding the exact `matching_results.tsv`,
-  `candidate_pairs.tsv`, and a `notes.md` (code version, config, local F0.5, public score once known). Append a row to
-  `submissions/log.md`. Never overwrite a past submission folder.
+  `candidate_pairs.tsv`, the uploaded code zip, and a `notes.md` (git commit, config, local F0.5, public score once known).
+  Append a row to `submissions/log.md`. Never overwrite a past submission folder.
+- Portal status must read SCORED with an F0.5; anything else means the upload was rejected — fix and re-validate.
 
 ## Model rule
 Every model used for the final predictions must be MIT or Apache-2.0 licensed and ≤ 8B parameters.

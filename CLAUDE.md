@@ -1,6 +1,7 @@
 # Amazon ML Challenge 2026 — Business Entity Resolution
 
-Hackathon window: 25 Sep 2026 00:00 → 27 Sep 2026 23:59 IST. Max 5 leaderboard uploads per day.
+Hackathon window: 25 Sep 2026 00:00 → 27 Sep 2026 23:59 IST. Max 5 leaderboard uploads per day;
+each upload = `matching_results.tsv` + a code zip built from the same commit.
 Given business records from 3 noisy sources, find every Source 2 / Source 3 record that refers to the same
 real-world business as each Source 1 record.
 Full spec: `docs/problem_statement.pdf`; event rules: `docs/guidelines.pdf`. Distilled: `docs/hackathon_notes.md`.

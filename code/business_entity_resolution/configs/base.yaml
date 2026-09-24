@@ -1,0 +1,15 @@
+seed: 42
+
+paths:
+  data_dir: dataset            # relative to --root (repo root by default)
+  cache_dir: artifacts/cache   # parquet copies of the TSVs + normalized tables
+  runs_dir: artifacts/runs
+  tmp_dir: artifacts/tmp       # DuckDB spill space (one subdir per process)
+  output_dir: output
+  validator: student_resource/utils/validate_submission.py
+
+engine:
+  duckdb_memory_limit: 512MB   # laptop has ~4 GB free shared with IDE/browser; raise on bigger machines
+  duckdb_threads: 2
+  workers: 2                   # processes for Python-side normalization/features
+  batch_rows: 200000

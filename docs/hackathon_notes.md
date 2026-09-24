@@ -1,6 +1,13 @@
 # Hackathon notes
 
-Distilled from `problem_statement.pdf`, `guidelines.pdf`, and the AWS Builder Center prep guide (Sep 2026).
+Distilled from `problem_statement.pdf`, `guidelines.pdf`, the Unstop challenge portal page (latest, authoritative
+where they differ), and the AWS Builder Center prep guide (Sep 2026).
+
+## Portal-only additions (Unstop page)
+- Each leaderboard submission = upload `matching_results.tsv` **plus a code zip** ("Upload Code File"), then "Submit & Evaluate".
+- Dataset and Student Resource (`utils/validate_submission.py`, `Documentation_template.md`) are downloaded from the portal.
+- No negative marking. All decisions on eligibility, authenticity, and final judgement rest with Unstop and the organizer.
+- Methodology doc: **no page limit** — clarity and technical depth over brevity (supersedes the guidelines PDF's "1–2 pages").
 
 ## Event
 - Window: **25 Sep 2026 00:00 IST → 27 Sep 2026 23:59 IST**. Dataset released day 1.
@@ -28,7 +35,7 @@ Noise to expect:
 - Train countries: US, India. Test adds France.
 
 ## Deliverables
-1. Leaderboard: upload `matching_results.tsv`.
+1. Leaderboard: upload `matching_results.tsv` + code zip (max 5 per day); expect status SCORED.
 2. Final zip `<team_name>_submission.zip`:
    ```
    output/matching_results.tsv
@@ -37,8 +44,9 @@ Noise to expect:
    Documentation_template.md   (filled: methodology, blocking, model + features, anything else)
    ```
    `utils/validate_submission.py` and `Documentation_template.md` come in the organizer's `student_resource/`.
-3. For the best solution: a **1–2 page** document (ML approach, models, experiments, conclusion) and source code for
-   experiments, training, and inference **with comments describing each function**.
+3. For the best solution: a methodology document (ML approach, models, experiments, conclusion; the guidelines PDF says
+   1–2 pages, the portal says no page limit — follow the portal) and source code for experiments, training, and
+   inference **with comments describing each function**.
 
 ## Metric
 F0.5 = 1.25·P·R / (0.25·P + R), per S1 entity, macro-averaged. Singletons: empty prediction → 1.0, any match → 0.0.
