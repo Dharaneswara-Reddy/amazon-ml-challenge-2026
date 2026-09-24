@@ -9,9 +9,9 @@ paths:
   validator: student_resource/utils/validate_submission.py
 
 engine:
-  duckdb_memory_limit: 512MB   # laptop has ~4 GB free shared with IDE/browser; raise on bigger machines
-  duckdb_threads: 2
-  workers: 2                   # processes for Python-side normalization/features
+  duckdb_memory_limit: 4GB     # tuned for a 15 GB laptop with ~9 GB free; lower on smaller machines
+  duckdb_threads: 8
+  workers: 6                   # processes for Python-side normalization/features
   batch_rows: 200000
 
 blocking:

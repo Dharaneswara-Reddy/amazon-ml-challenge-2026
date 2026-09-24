@@ -13,6 +13,7 @@ Passes:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 import duckdb
@@ -167,14 +168,24 @@ def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: 
 def run_blocking(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> dict:
     """Run every configured pass on views L and R and leave the result in table `candidates`; return pair counts."""
     stats: dict = {}
+    t0 = time.time()
+
+    def mark(step: str, table: str | None = None) -> None:
+        """Record elapsed seconds (and pair count) for a finished step and log it."""
+        if table:
+            stats[f"{step}_pairs"] = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        stats[f"{step}_s"] = round(time.time() - t0, 1)
+        log.info("blocking step=%s elapsed_s=%s pairs=%s", step, stats[f"{step}_s"], stats.get(f"{step}_pairs"))
+
     build_token_tables(con, cfg)
+    mark("token_tables")
     token_pass(con, cfg)
-    stats["tok_pairs"] = con.execute("SELECT count(*) FROM cand_tok").fetchone()[0]
+    mark("tok", "cand_tok")
     for name in cfg.sn_keys:
         sorted_neighbourhood_pass(con, name, cfg)
-        stats[f"{name}_pairs"] = con.execute(f"SELECT count(*) FROM cand_{name}").fetchone()[0]
+        mark(name, f"cand_{name}")
     union_and_rank(con, cfg, ["tok", *cfg.sn_keys])
-    stats["final_pairs"] = con.execute("SELECT count(*) FROM candidates").fetchone()[0]
+    mark("final", "candidates")
     log.info("blocking done %s", " ".join(f"{k}={v}" for k, v in stats.items()))
     return stats
 

@@ -154,9 +154,10 @@ def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, grou
         f"""SELECT s.idx, p.rid, p.p, p.label::BOOLEAN AS label
             FROM read_parquet('{preds}') p JOIN s1g s ON s.s1_id = p.lid"""
     ).fetchnumpy()
+    rid_codes = np.unique(np.asarray(pairs["rid"], dtype=object), return_inverse=True)[1].astype(np.int64)
     return {
         "lid_idx": pairs["idx"].astype(np.int64),
-        "rid": np.asarray(pairs["rid"]),
+        "rid": rid_codes,
         "p": pairs["p"].astype(np.float64),
         "label": pairs["label"].astype(bool),
         "n_true": n_true,
