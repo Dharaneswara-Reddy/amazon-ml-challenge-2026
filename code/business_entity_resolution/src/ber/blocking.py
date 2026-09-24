@@ -126,12 +126,14 @@ def sorted_neighbourhood_pass(con: duckdb.DuckDBPyConnection, name: str, cfg: Bl
                   UNION ALL
                   SELECT entity_id AS id, 1 AS side, country_norm AS c, {key} AS k FROM R)"""
     )
+    # `target` must be a materialized column: with `l.lcum = r.lcum + off` DuckDB hash-joins on country only and
+    # filters afterwards, which is quadratic within a country.
     con.execute(
         f"""CREATE OR REPLACE TEMP TABLE cand_{name} AS
-            SELECT l.id AS lid, r.id AS rid, min(abs(o.off - 0.5)) AS sn_dist
-            FROM (SELECT * FROM sn WHERE side = 1) r
-            CROSS JOIN range({-w + 1}, {w + 1}) o(off)
-            JOIN (SELECT * FROM sn WHERE side = 0) l ON l.c = r.c AND l.lcum = r.lcum + o.off
+            SELECT l.id AS lid, r.id AS rid, min(abs(r.off - 0.5)) AS sn_dist
+            FROM (SELECT s.id, s.c, o.off, s.lcum + o.off AS target
+                  FROM sn s CROSS JOIN range({-w + 1}, {w + 1}) o(off) WHERE s.side = 1) r
+            JOIN (SELECT * FROM sn WHERE side = 0) l ON l.c = r.c AND l.lcum = r.target
             GROUP BY ALL"""
     )
 
