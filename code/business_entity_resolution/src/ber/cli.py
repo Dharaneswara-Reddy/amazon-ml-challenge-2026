@@ -203,13 +203,14 @@ def run_features(args: argparse.Namespace, cfg: Config) -> int:
 def add_train(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber train``."""
     p.add_argument("--name", default="v2", help="run name suffix")
+    p.add_argument("--resume", type=Path, default=None, help="earlier run dir: reuse its finished models/predictions")
 
 
 def run_train(args: argparse.Namespace, cfg: Config) -> int:
     """Train stage 1 + stage 2, choose the decision rule on tune, score the holdout; print the run dir."""
     from ber.pipeline import train_stage
 
-    _emit({"run_dir": str(train_stage(cfg, args.name))}, None)
+    _emit({"run_dir": str(train_stage(cfg, args.name, args.resume))}, None)
     return 0
 
 

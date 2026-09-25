@@ -338,6 +338,24 @@ def _in_group_copy(con: duckdb.DuckDBPyConnection, src: Path, dst: Path) -> Path
     return dst
 
 
+def _fetch_numpy(con: duckdb.DuckDBPyConnection, sql: str) -> dict[str, np.ndarray]:
+    """Run ``sql`` into a temp table, then fetch the table as numpy arrays on one thread.
+
+    Fetching a large join/window query directly streams it through DuckDB's buffered result path; with 12 threads
+    that livelocked (one thread spinning on a mutex for 35+ minutes on 4M rows, DuckDB 1.5.5) while the same query
+    took 7 s in a fresh connection. Materializing runs the query fully in parallel; the plain scan is then fetched
+    with threads = 1 so no producer threads compete for the result buffer.
+    """
+    con.execute(f"CREATE OR REPLACE TEMP TABLE _fetch AS {sql}")
+    threads = con.execute("SELECT current_setting('threads')").fetchone()[0]
+    con.execute("SET threads = 1")
+    try:
+        return con.execute("SELECT * FROM _fetch").fetchnumpy()
+    finally:
+        con.execute(f"SET threads = {int(threads)}")
+        con.execute("DROP TABLE IF EXISTS _fetch")
+
+
 def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, group: str) -> dict[str, np.ndarray]:
     """Arrays for the decision layer on one train group, with rivals respected (D-003).
 
@@ -354,14 +372,15 @@ def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, grou
             LEFT JOIN read_parquet('{io.gt_s1_path(cfg)}') g ON g.s1_id = s.entity_id
             WHERE {group_where("s.entity_id", group)}"""
     )
-    n_true = con.execute("SELECT n_true FROM s1g ORDER BY idx").fetchnumpy()["n_true"]
-    pairs = con.execute(
+    n_true = _fetch_numpy(con, "SELECT n_true FROM s1g ORDER BY idx")["n_true"]
+    pairs = _fetch_numpy(
+        con,
         f"""WITH pr AS (SELECT lid, rid, p, label FROM read_parquet('{preds}')),
                  best AS (SELECT rid, arg_max(lid, p) AS best_lid FROM pr GROUP BY rid)
             SELECT s.idx, dense_rank() OVER (ORDER BY pr.rid) - 1 AS rc, pr.p, pr.label::BOOLEAN AS label
             FROM pr JOIN s1g s ON s.s1_id = pr.lid JOIN best b ON b.rid = pr.rid
-            WHERE b.best_lid IN (SELECT s1_id FROM s1g)"""
-    ).fetchnumpy()
+            WHERE b.best_lid IN (SELECT s1_id FROM s1g)""",
+    )
     return {
         "lid_idx": pairs["idx"].astype(np.int64),
         "rid": pairs["rc"].astype(np.int64),
@@ -371,13 +390,25 @@ def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, grou
     }
 
 
-def train_stage(cfg: Config, name: str = "v2") -> Path:
+def _best_iter(booster: lgb.Booster) -> int:
+    """Best iteration of a freshly trained booster, or the tree count of one loaded from a saved (best-only) model."""
+    return int(booster.best_iteration or booster.current_iteration())
+
+
+def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None) -> Path:
     """Stage-1 LightGBM, out-of-fold stage-1 predictions, stage-2 LightGBM, and the decision rule; score holdout.
 
     The rule (threshold vs expected-F0.5) and its parameters come from the tune group only (choose_decision);
     the holdout is scored once. Everything is recorded in the run manifest.
+    resume: an earlier run dir of this function; every model / prediction / feature file already present there is
+    reused (files are only written once complete, so presence means done) and only the missing steps run.
     """
-    run = new_run_dir(cfg, name)
+    run = Path(resume) if resume else new_run_dir(cfg, name)
+
+    def have(fname: str) -> bool:
+        """True when resuming and ``fname`` already exists in the run dir."""
+        return resume is not None and (run / fname).exists()
+
     seed, threads, rows = int(cfg.seed), int(cfg.engine.duckdb_threads), int(cfg.engine.batch_rows)
     mcfg = dict(cfg.get("model", {}))
     params, rounds = dict(mcfg.get("params", {})), int(mcfg.get("rounds", 5000))
@@ -385,27 +416,46 @@ def train_stage(cfg: Config, name: str = "v2") -> Path:
     con = connect(cfg, run / "work.duckdb")
     metrics: dict[str, Any] = {}
     try:
-        fit_in = _in_group_copy(con, feat["fit"], run / "fit_in.parquet")
-        tune_in = _in_group_copy(con, feat["tune"], run / "tune_in.parquet")
-        with stage("train_stage1", run=run) as st:
-            b1 = train(fit_in, tune_in, params, seed, threads, rounds=rounds)
-            b1.save_model(str(run / "model1.txt"), num_iteration=b1.best_iteration)
-            st["best_iteration"] = b1.best_iteration
-        with stage("oof_stage1"):
-            folds = oof_predict(con, fit_in, tune_in, run / "pred1_fit_in.parquet", run, params, seed, threads, rows)
-            predict_protocol(con, feat["fit"], run / "pred1_fit.parquet", folds, b1, rows, run)
+        fit_in, tune_in = run / "fit_in.parquet", run / "tune_in.parquet"
+        for src, dst in ((feat["fit"], fit_in), (feat["tune"], tune_in)):
+            if not have(dst.name):
+                _in_group_copy(con, src, dst)
+        if have("model1.txt"):
+            b1 = lgb.Booster(model_file=str(run / "model1.txt"))
+        else:
+            with stage("train_stage1", run=run) as st:
+                b1 = train(fit_in, tune_in, params, seed, threads, rounds=rounds)
+                b1.save_model(str(run / "model1.txt"), num_iteration=b1.best_iteration)
+                st["best_iteration"] = b1.best_iteration
+        if not have("pred1_fit.parquet"):
+            with stage("oof_stage1"):
+                folds = oof_predict(
+                    con, fit_in, tune_in, run / "pred1_fit_in.parquet", run, params, seed, threads, rows
+                )
+                predict_protocol(con, feat["fit"], run / "pred1_fit.parquet", folds, b1, rows, run)
         for g in ("tune", "holdout"):
-            predict_file(b1, feat[g], run / f"pred1_{g}.parquet", rows)
+            if not have(f"pred1_{g}.parquet"):
+                predict_file(b1, feat[g], run / f"pred1_{g}.parquet", rows)
         for g in TRAIN_GROUPS:
-            write_stage2_features(con, feat[g], run / f"pred1_{g}.parquet", run / f"s2_{g}.parquet")
-        s2_fit_in = _in_group_copy(con, run / "s2_fit.parquet", run / "s2_fit_in.parquet")
-        s2_tune_in = _in_group_copy(con, run / "s2_tune.parquet", run / "s2_tune_in.parquet")
-        with stage("train_stage2", run=run) as st:
-            b2 = train(s2_fit_in, s2_tune_in, params, seed, threads, rounds=rounds, features=MODEL2_FEATURES)
-            b2.save_model(str(run / "model2.txt"), num_iteration=b2.best_iteration)
-            st["best_iteration"] = b2.best_iteration
+            if not have(f"s2_{g}.parquet"):
+                write_stage2_features(con, feat[g], run / f"pred1_{g}.parquet", run / f"s2_{g}.parquet")
+        s2_fit_in, s2_tune_in = run / "s2_fit_in.parquet", run / "s2_tune_in.parquet"
+        for src, dst in ((run / "s2_fit.parquet", s2_fit_in), (run / "s2_tune.parquet", s2_tune_in)):
+            if not have(dst.name):
+                _in_group_copy(con, src, dst)
+        if have("model2.txt"):
+            b2 = lgb.Booster(model_file=str(run / "model2.txt"))
+        else:
+            with stage("train_stage2", run=run) as st:
+                b2 = train(s2_fit_in, s2_tune_in, params, seed, threads, rounds=rounds, features=MODEL2_FEATURES)
+                b2.save_model(str(run / "model2.txt"), num_iteration=b2.best_iteration)
+                st["best_iteration"] = b2.best_iteration
         for g in ("tune", "holdout"):
-            predict_file(b2, run / f"s2_{g}.parquet", run / f"pred2_{g}.parquet", rows, features=MODEL2_FEATURES)
+            if not have(f"pred2_{g}.parquet"):
+                predict_file(
+                    b2, run / f"s2_{g}.parquet", run / f"pred2_{g}.parquet", rows, features=MODEL2_FEATURES
+                )
+        log.info(kv(event="decision_arrays_start", run=run))
         arr1 = {g: _group_arrays(con, cfg, run / f"pred1_{g}.parquet", g) for g in ("tune", "holdout")}
         arr2 = {g: _group_arrays(con, cfg, run / f"pred2_{g}.parquet", g) for g in ("tune", "holdout")}
         rep1 = choose_decision(arr1["tune"], arr1["holdout"])
@@ -420,8 +470,8 @@ def train_stage(cfg: Config, name: str = "v2") -> Path:
             "holdout_f05": rep2["holdout"][rule],
             "holdout_candidate_recall": float(arr2["holdout"]["label"].sum() / max(arr2["holdout"]["n_true"].sum(), 1)),
             "train_prior_best": float(t["label"][best_per_right(t["rid"], t["lid_idx"], t["p"])].mean()),
-            "best_iteration_stage1": b1.best_iteration,
-            "best_iteration_stage2": b2.best_iteration,
+            "best_iteration_stage1": _best_iter(b1),
+            "best_iteration_stage2": _best_iter(b2),
         }
         (run / "decision_params.json").write_text(json.dumps(rep2["params"], default=float))
     finally:
@@ -477,11 +527,12 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True) -> dict[
             predict_file(
                 b2, run_dir / "s2_test.parquet", run_dir / "pred2_test.parquet", rows, features=MODEL2_FEATURES
             )
-        d = con.execute(
+        d = _fetch_numpy(
+            con,
             f"""SELECT lid, dense_rank() OVER (ORDER BY lid) - 1 AS li, dense_rank() OVER (ORDER BY rid) - 1 AS rc,
                        rid, p
-                FROM read_parquet('{run_dir / "pred2_test.parquet"}')"""
-        ).fetchnumpy()
+                FROM read_parquet('{run_dir / "pred2_test.parquet"}')""",
+        )
         li, rc, p = d["li"].astype(np.int64), d["rc"].astype(np.int64), d["p"].astype(np.float64)
         info: dict[str, Any] = {"rule": params["rule"]}
         if prior_shift:

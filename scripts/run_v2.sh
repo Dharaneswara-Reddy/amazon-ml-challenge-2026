@@ -5,6 +5,7 @@
 #   scripts/run_v2.sh predict <run_dir>   test prediction with prior shift → official validator → freeze submission
 #   scripts/run_v2.sh rest      resume after block_train (e.g. after the recall gate was reviewed and accepted)
 #   scripts/run_v2.sh rest_features   resume at the feature step (candidates and log-odds already built)
+#   scripts/run_v2.sh train_resume <run_dir>   finish an interrupted train (reuses its saved models) → predict
 #   scripts/run_v2.sh all       prep → train → predict in one unattended chain (live view: scripts/progress.sh)
 # Heavy steps take the shared lock so only one runs at a time; every step logs to artifacts/logs/v2_<step>.log.
 set -euo pipefail
@@ -42,6 +43,12 @@ case "${1:?usage: run_v2.sh prep|train|predict <run_dir>|all}" in
   train)
     run train train --name v2
     $PY -c "import json;print(json.load(open('$L/v2_train.json'))['run_dir'])"
+    ;;
+  train_resume)
+    RUN=${2:?usage: run_v2.sh train_resume <run_dir>}
+    run train train --name v2 --resume "$RUN"
+    "$0" predict "$RUN"
+    step "all done"
     ;;
   predict)
     RUN=${2:?usage: run_v2.sh predict <run_dir>}
