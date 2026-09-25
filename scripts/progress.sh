@@ -65,7 +65,7 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                  for i in 0 1 2 3; do
                    f=${ms[$i]%%:*}; label=${ms[$i]#*:}; nf=${ms[$((i + 1))]%%:*}
                    if [ -e "$RUN/$f" ] && { [ $i -eq 3 ] || [ -e "$RUN/$nf" ]; }; then echo "    [x] $label"
-                   elif [ -e "$RUN/$f" ] || { [ $i -eq 0 ] || [ -e "$RUN/${ms[$((i - 1))]%%:*}" ]; }; then
+                   elif [ -e "$RUN/$f" ] || [ $i -eq 0 ]; then
                      sz=$(du -h "$RUN/$f" 2>/dev/null | cut -f1); echo "    [>] $label   ${sz:+(output so far: $sz)}"
                    else echo "    [ ] $label"; fi
                  done
