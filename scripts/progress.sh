@@ -41,7 +41,7 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                  [ -n "$l" ] && echo "  buckets (current group) $(bar "${l%/*}" "${l#*/}")" ;;
     train)       RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
                  last=$(stat -c %Y "$(ls -t "$RUN"/* 2>/dev/null | head -1)" 2>/dev/null || echo "$now")
-                 cpu=$(ps -eo pcpu=,args= | awk '/bin\/ber / && !/awk/ {c+=$1} END {printf "%.0f", c}')
+                 pids=$(pgrep -d, -f "bin/ber |multiprocessing.spawn"); cpu=$( [ -n "$pids" ] && top -b -n1 -p "$pids" | awk 'NR>7 {c+=$9} END {printf "%.0f", c}' )
                  ms() { if [ -e "$RUN/$1" ]; then printf '    [x] %s\n' "$2"; elif [ "$3" = cur ]; then printf '    [>] %s   <- running %dm%02ds, CPU %s%%\n' "$2" $(( (now - last) / 60 )) $(( (now - last) % 60 )) "$cpu"; else printf '    [ ] %s\n' "$2"; fi; }
                  nxt() { for f in "$@"; do [ -e "$RUN/$f" ] || { echo "$f"; return; }; done; }
                  n=$(nxt fit_in.parquet model1.txt pred1_fit_in.parquet pred1_fit.parquet pred1_holdout.parquet s2_holdout.parquet model2.txt pred2_holdout.parquet decision_params.json manifest.json)
@@ -106,6 +106,10 @@ echo; echo "Errors:"
 grep -hE "Traceback|Error|ERROR|Killed|status=error" "$OUT" "$LOG" 2>/dev/null | tail -3 | cut -c1-160 | sed 's/^/  /'
 
 echo; echo "Machine:"
-ps -eo pcpu=,rss=,args= | awk '/bin\/ber |multiprocessing/ && !/awk/ {c+=$1; r+=$2; n++} END {printf "  pipeline processes: %d, CPU %.0f%% (1200%% = all 12 threads), RAM %.1f GB\n", n, c, r/1048576}'
+pids=$(pgrep -d, -f "bin/ber |multiprocessing.spawn")
+if [ -n "$pids" ]; then
+  c=$(top -b -n1 -p "$pids" | awk 'NR>7 {c+=$9} END {printf "%.0f", c}')
+  ps -o rss= -p "$pids" | awk -v c="$c" '{r+=$1; n++} END {printf "  pipeline processes: %d, CPU now %s%% (1200%% = all 12 threads), RAM %.1f GB\n", n, c, r/1048576}'
+fi
 free -h | awk 'NR==2{print "  RAM used " $3 " / " $2 ", available " $7} NR==3{print "  swap used " $3 " / " $2}'
 echo "  spill dir: $(du -sh artifacts/tmp 2>/dev/null | cut -f1)   disk free: $(df -h . | awk 'NR==2{print $4}')"
