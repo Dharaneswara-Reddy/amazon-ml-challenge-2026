@@ -8,7 +8,15 @@ from pathlib import Path
 
 from ber import io
 from ber.config import PACKAGE_DIR, load_config
-from ber.pipeline import block_stage, features_stage, normalize_stage, predict_stage, rule_stage, train_stage
+from ber.pipeline import (
+    block_stage,
+    features_stage,
+    learn_logodds_stage,
+    learn_maps_stage,
+    normalize_stage,
+    predict_stage,
+    train_stage,
+)
 
 WORDS = [
     "ram",
@@ -108,17 +116,18 @@ def test_pipeline_end_to_end_passes_official_validator(tmp_path: Path) -> None:
     cfg = load_config(root=tmp_path)
 
     io.prepare(cfg)
+    learn_maps_stage(cfg, n_pairs=2000, n_addr=5000)
     for split in ("train", "test"):
         normalize_stage(cfg, split)
         stats = block_stage(cfg, split)
+    learn_logodds_stage(cfg, max_pairs=20000)
+    for split in ("train", "test"):
         features_stage(cfg, split)
-    rule = rule_stage(cfg)
-    assert 0.0 <= rule["holdout_f05"] <= 1.0
     run_dir = train_stage(cfg, "smoke")
     result = predict_stage(cfg, run_dir)
 
     assert stats["final_pairs"] > 0
-    assert (run_dir / "model.txt").exists()
+    assert (run_dir / "model1.txt").exists() and (run_dir / "model2.txt").exists()
     out = Path(cfg.paths.output_dir)
     assert result is not None
     proc = subprocess.run(

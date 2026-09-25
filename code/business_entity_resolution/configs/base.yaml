@@ -14,16 +14,28 @@ engine:
   workers: 6                   # processes for Python-side normalization/features
   batch_rows: 200000
 
-blocking:
+blocking:                      # v2 (DESIGN_V2 §S2, D-006)
   token_min_len: 2
   token_fields: [name, addr]   # IDF pass over namespaced name + address tokens
   token_df_cap: 100            # skip tokens in more than this many Source-1 records (per country)
   token_df_cap_right: 500      # ... or in more than this many Source-2/3 records
-  token_top_k: 5               # left candidates kept per right record from the token pass
+  token_top_k: 5
+  q3_enabled: true             # character-trigram IDF pass on the core name (typos, transliteration)
+  q3_df_cap: 300
+  q3_df_cap_right: 1500
+  q3_top_k: 5
   sn_window: 3                 # sorted-neighbourhood window per side
   sn_keys: [sn_name, sn_name_addr, sn_addr_name, sn_skel_nums, sn_nums_addr, sn_addr_skel]
-  final_top_k: 5               # left candidates kept per right record after union (ranked by block_score)
-  buckets: 16                  # hash buckets for the token join (bounds memory)
+  nameonly_enabled: true       # name-only neighbourhood for right records with empty/short addresses
+  nameonly_window: 10
+  nameonly_max_addr_tokens: 2
+  final_top_k: 5               # overridden by learned/ranker.json "k" when the ranker exists
+  buckets: 16
 
-model:
-  params: {}                 # overrides of ber.model.DEFAULT_PARAMS
+features:
+  buckets: 16                  # right-id hash buckets for the feature pass (D-019)
+
+model:                         # LightGBM for stage 1 and stage 2 (D-007, D-008)
+  rounds: 5000                 # upper bound; early stopping on the tune group decides
+  params:
+    learning_rate: 0.1         # v1 used 0.05 and hit the 2000-round cap while still improving

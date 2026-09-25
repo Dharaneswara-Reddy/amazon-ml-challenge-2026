@@ -313,9 +313,7 @@ def _prepare_tables(con: duckdb.DuckDBPyConnection, buckets: int, group_sql: str
     con.execute("CREATE OR REPLACE TABLE rname_freq AS SELECT name_core, count(*) AS f FROM R GROUP BY 1")
     build_entity_context(con, buckets)
     if group_sql and context_rids:
-        con.execute(
-            f"CREATE OR REPLACE TABLE ctx_rids AS SELECT DISTINCT rid FROM candidates c WHERE {group_sql}"
-        )
+        con.execute(f"CREATE OR REPLACE TABLE ctx_rids AS SELECT DISTINCT rid FROM candidates c WHERE {group_sql}")
 
 
 def iter_feature_batches(

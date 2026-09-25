@@ -552,8 +552,7 @@ def compare_decisions(
     ``expected_f`` (+ tuned shift/empty_weight; what ``decide`` runs). Returns ``{"threshold", "shift",
     "empty_weight", "tune": {rule: f05}, "holdout": {rule: f05}, "holdout_expected_pred" / "holdout_expected_real":
     predicted vs realized mean F0.5 of expected_f_model on holdout entities with candidates (a calibration check),
-    "params": fit_decision output with "rule" set to the holdout winner of threshold vs expected_f}``.
-    Tune scores are in-sample; judge on holdout.
+    "params": fit_decision output}``. Tune scores are in-sample; use ``choose_decision`` to pick the rule.
     """
     params = fit_decision(tune, max_k, n_missing_bins)
     miss = MissingModel.from_dict(params["missing"])
@@ -577,6 +576,67 @@ def compare_decisions(
             real = per_entity_f05(lid, masks["expected_f_model"], label, n_true)
             out["holdout_expected_pred"] = float(ef[has].mean()) if has.any() else float("nan")
             out["holdout_expected_real"] = float(real[has].mean()) if has.any() else float("nan")
-    winner = max(("threshold", "expected_f"), key=lambda r: out["holdout"][r])
-    out["params"] = {**params, "rule": winner}
+    out["params"] = dict(params)
     return out
+
+
+def _subset(g: Mapping[str, np.ndarray], keep_entity: np.ndarray) -> dict[str, np.ndarray]:
+    """Restrict group arrays to the entities where keep_entity is True, re-indexing lid_idx compactly."""
+    new_idx = np.cumsum(keep_entity) - 1
+    pair_keep = keep_entity[g["lid_idx"]]
+    return {
+        "lid_idx": new_idx[g["lid_idx"][pair_keep]],
+        "rid": g["rid"][pair_keep],
+        "p": g["p"][pair_keep],
+        "label": g["label"][pair_keep],
+        "n_true": g["n_true"][keep_entity],
+    }
+
+
+def choose_decision(
+    tune: Mapping[str, np.ndarray], holdout: Mapping[str, np.ndarray], max_k: int = DEFAULT_MAX_K
+) -> dict[str, Any]:
+    """Pick threshold vs expected-F0.5 WITHOUT touching the holdout (decisions D-004, D-009).
+
+    The tune entities are split in two halves (even / odd entity index): the rule parameters are fitted on half A
+    and the rule is chosen by macro F0.5 on half B. Parameters are then refitted on the full tune group and both
+    rules are reported on the holdout for information only. Returns compare_decisions(tune, holdout) plus
+    ``params["rule"]`` and ``selection`` (half-B scores).
+    """
+    half = np.arange(len(tune["n_true"])) % 2 == 0
+    sel = compare_decisions(_subset(tune, half), _subset(tune, ~half), max_k)
+    winner = max(("threshold", "expected_f"), key=lambda r: sel["holdout"][r])
+    full = compare_decisions(tune, holdout, max_k)
+    full["params"]["rule"] = winner
+    full["selection"] = {"rule": winner, "tune_half_b": sel["holdout"]}
+    return full
+
+
+def em_prior_shift(
+    p: np.ndarray, train_prior: float, max_iter: int = 500, tol: float = 1e-8
+) -> tuple[float, np.ndarray]:
+    """Estimate the test positive rate and re-weighted probabilities by EM (Saerens, Latinne & Decaestecker 2002).
+
+    p: calibrated P(match) from a model trained where the positive rate among these pairs was ``train_prior``.
+    Iterates prior' = mean(adjusted p) with adjusted p = a·p / (a·p + b·(1 − p)), a = prior'/train_prior,
+    b = (1 − prior')/(1 − train_prior). Returns (estimated test prior, adjusted probabilities). Decision D-010.
+    """
+    p = np.clip(np.asarray(p, dtype=np.float64), 1e-9, 1 - 1e-9)
+    prior = float(train_prior)
+    adj = p
+    for _ in range(max_iter):
+        a, b = prior / train_prior, (1 - prior) / (1 - train_prior)
+        adj = a * p / (a * p + b * (1 - p))
+        new = float(adj.mean())
+        if abs(new - prior) < tol:
+            prior = new
+            break
+        prior = new
+    return prior, adj
+
+
+def shift_probabilities(p: np.ndarray, train_prior: float, test_prior: float) -> np.ndarray:
+    """Re-weight calibrated probabilities from the train prior to a new prior (the EM fixed-point map)."""
+    p = np.clip(np.asarray(p, dtype=np.float64), 1e-9, 1 - 1e-9)
+    a, b = test_prior / train_prior, (1 - test_prior) / (1 - train_prior)
+    return a * p / (a * p + b * (1 - p))

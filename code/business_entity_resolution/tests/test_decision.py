@@ -10,8 +10,10 @@ from ber.decision import (
     Calibrator,
     MissingModel,
     best_per_right,
+    choose_decision,
     compare_decisions,
     decide,
+    em_prior_shift,
     expected_f_curve,
     expected_f_select,
     fit_calibrator,
@@ -19,6 +21,7 @@ from ber.decision import (
     macro_f05,
     pava,
     select,
+    shift_probabilities,
     tune_threshold,
 )
 
@@ -212,3 +215,28 @@ def test_simulation_expected_f_beats_global_threshold(singleton: float) -> None:
     params = json.loads(json.dumps(res["params"]))
     sel = decide(params, holdout["lid_idx"], holdout["rid"], holdout["p"])
     assert macro_f05(holdout["lid_idx"], sel, holdout["label"], holdout["n_true"]) == pytest.approx(h[params["rule"]])
+
+
+def test_em_prior_shift_recovers_a_lower_positive_rate() -> None:
+    """Scores calibrated at prior 0.30 applied to data with prior 0.18: EM recovers ~0.18 and shifts p down."""
+    rng = np.random.default_rng(7)
+    n = 200_000
+    y = rng.random(n) < 0.18
+    s = np.where(y, rng.normal(1.0, 1.0, n), rng.normal(-1.0, 1.0, n))
+    lik_pos, lik_neg = np.exp(-0.5 * (s - 1) ** 2), np.exp(-0.5 * (s + 1) ** 2)
+    p_train = 0.30 * lik_pos / (0.30 * lik_pos + 0.70 * lik_neg)
+    prior, adj = em_prior_shift(p_train, 0.30)
+    assert prior == pytest.approx(0.18, abs=0.01)
+    assert adj.mean() < p_train.mean()
+    assert shift_probabilities(np.array([0.5]), 0.3, 0.3)[0] == pytest.approx(0.5)
+
+
+def test_choose_decision_selects_without_holdout() -> None:
+    """The chosen rule depends only on tune data: scrambling holdout labels never changes params["rule"]."""
+    rng = np.random.default_rng(11)
+    tune, hold = simulate_group(rng, 4000), simulate_group(rng, 4000)
+    first = choose_decision(tune, hold)
+    scrambled = {**hold, "label": rng.permutation(hold["label"])}
+    second = choose_decision(tune, scrambled)
+    assert first["params"]["rule"] == second["params"]["rule"] in ("threshold", "expected_f")
+    assert set(first["selection"]["tune_half_b"]) >= {"threshold", "expected_f"}

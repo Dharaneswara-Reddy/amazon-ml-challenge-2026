@@ -13,15 +13,18 @@ Design goals:
 
 from __future__ import annotations
 
+import json
 import multiprocessing as mp
 import re
 import unicodedata
-from collections import deque
+from collections import Counter, defaultdict, deque
+from collections.abc import Iterable
 from functools import lru_cache
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from anyascii import anyascii
+from rapidfuzz.distance import JaroWinkler
 
 # --------------------------------------------------------------------------------------------------
 # Transliteration
@@ -310,6 +313,180 @@ def name_skeleton(name: str) -> str:
     """Phonetic consonant skeleton of a normalized name (use on name_core): keeps first letter of each
     token, drops later vowels and non-initial 'h', unifies c/k/q, w/v, ph/f, z/j, collapses doubles."""
     return " ".join(_skeleton_word(w) for w in name.split())
+
+
+# --------------------------------------------------------------------------------------------------
+# Name decomposition v2: legal form / type words / learned transliteration map (DESIGN_V2 S1; D-012, D-013)
+# --------------------------------------------------------------------------------------------------
+
+# Canonical legal-form string for a *set* of LEGAL_TOKENS found in a name, so word-order shuffles
+# ("ltd pvt" vs "pvt ltd") and single-token forms both resolve to one label. Keys are frozensets of the
+# canonical spellings already produced by NAME_TOKEN_MAP (see normalize_name), so this runs on name_norm.
+LEGAL_FORM_CANON: dict[frozenset[str], str] = {
+    frozenset({"pvt", "ltd"}): "private limited",
+    frozenset({"ltd"}): "limited",
+    frozenset({"pvt"}): "private",
+    frozenset({"llp"}): "llp",
+    frozenset({"lp"}): "lp",
+    frozenset({"inc"}): "inc",
+    frozenset({"llc"}): "llc",
+    frozenset({"corp"}): "corp",
+    frozenset({"pllc"}): "pllc",
+    frozenset({"pc"}): "pc",
+    frozenset({"pa"}): "pa",
+    frozenset({"plc"}): "plc",
+    frozenset({"co"}): "co",
+    frozenset({"lllp"}): "lllp",
+    frozenset({"ltda"}): "ltda",
+    frozenset({"gmbh"}): "gmbh",
+    frozenset({"ag"}): "ag",
+    frozenset({"bv"}): "bv",
+    frozenset({"nv"}): "nv",
+    # French
+    frozenset({"sarl"}): "sarl",
+    frozenset({"sas"}): "sas",
+    frozenset({"sa"}): "sa",
+    frozenset({"eurl"}): "eurl",
+    frozenset({"sasu"}): "sasu",
+    frozenset({"sci"}): "sci",
+    frozenset({"snc"}): "snc",
+    frozenset({"ei"}): "ei",
+    frozenset({"eirl"}): "eirl",
+    frozenset({"selarl"}): "selarl",
+    frozenset({"scop"}): "scop",
+    frozenset({"scm"}): "scm",
+    frozenset({"sca"}): "sca",
+    frozenset({"gie"}): "gie",
+    frozenset({"scs"}): "scs",
+    frozenset({"sel"}): "sel",
+}
+
+
+def split_legal_form(name_norm: str) -> tuple[str, str]:
+    """Split a normalized name into (name without legal-form tokens, canonical legal form).
+
+    Scans every token against LEGAL_TOKENS (already canonical spellings, since normalize_name ran
+    NAME_TOKEN_MAP first) and removes them regardless of position, so a shuffled suffix like "ltd pvt"
+    resolves the same as "pvt ltd". The set of legal tokens found is mapped to one label via
+    LEGAL_FORM_CANON (e.g. {"pvt","ltd"} -> "private limited"); an unlisted combination falls back to its
+    tokens sorted and space-joined, so the function never raises on an unseen mixture. Returns
+    (name_norm, '') when no legal token is present. Input/output: str.
+    """
+    toks = name_norm.split()
+    found = frozenset(t for t in toks if t in LEGAL_TOKENS)
+    if not found:
+        return name_norm, ""
+    kept = [t for t in toks if t not in LEGAL_TOKENS]
+    legal = LEGAL_FORM_CANON.get(found, " ".join(sorted(found)))
+    return " ".join(kept), legal
+
+
+# Generic business-type words: a hand-written seed (measured on true pairs, docs/normalization_findings.md
+# notes distractors add exactly these words). Kept as a *parameter default* on type_words_of, not baked
+# in, so a data-learned vocabulary (tokens over-represented on one side of negative pairs) can replace it
+# later without touching call sites.
+TYPE_WORDS: frozenset[str] = frozenset(
+    """
+    group ventures enterprise enterprises company services service solutions overseas industries industry
+    holdings holding trading traders international associates consultancy consultants technologies tech
+    systems global agency agencies partners network networks resources logistics exports imports
+    distributors distribution marketing management consulting innovations works
+    """.split()
+)
+
+
+def type_words_of(name_core: str, vocab: frozenset[str] = TYPE_WORDS) -> str:
+    """Return the generic business-type words present in ``name_core``, sorted and space-joined.
+
+    ``vocab`` defaults to the hand-written TYPE_WORDS seed but is a parameter so a data-learned vocabulary
+    can be substituted. Does not remove the words from name_core (D-013 / findings.md: they stay, since
+    stripping them hurt precision) -- this only labels which ones are present, as a separate feature.
+    Input: a name_core string. Output: '' if none of ``vocab`` appears.
+    """
+    if not name_core:
+        return ""
+    toks = set(name_core.split())
+    return " ".join(sorted(toks & vocab))
+
+
+def _ngram_units(tokens: list[str]) -> list[str]:
+    """Unigrams plus adjacent bigrams of a token list, so a one-word abbreviation on one side (e.g. "pra
+    li" transliterated as two tokens) can align to a two-word canonical phrase on the other ("private
+    limited") and vice versa."""
+    units = list(tokens)
+    units += [f"{a} {b}" for a, b in zip(tokens, tokens[1:], strict=False)]
+    return units
+
+
+def _compile_phrase_pattern(token_map: dict[str, str]) -> re.Pattern:
+    """Compile one longest-key-first, word-bounded alternation regex for apply_token_map.
+
+    Built once (per token map) and reused across a whole batch -- token_map can have thousands of
+    entries, and compiling per row would blow the throughput budget.
+    """
+    keys = sorted(token_map, key=len, reverse=True)
+    return re.compile(r"\b(?:" + "|".join(re.escape(k) for k in keys) + r")\b")
+
+
+def learn_token_map(
+    pairs: Iterable[tuple[str, str]],
+    min_support: int = 50,
+    min_precision: float = 0.9,
+    align_threshold: float = 0.55,
+) -> dict[str, str]:
+    """Learn a right-name-token/bigram -> left-name-phrase map from true pairs (D-012).
+
+    Input: (s1_name_norm, r_name_norm) pairs for TRUE matches where the right name came from a non-Latin
+    script and was transliterated (e.g. right="pra li", left="private limited"). For every pair, each
+    unigram/bigram of the right name is aligned to whichever unigram/bigram of the left name has the
+    highest rapidfuzz JaroWinkler similarity between their phonetic skeletons (``name_skeleton``, which is
+    what survives transliteration drift -- see D-016); an alignment below ``align_threshold`` is dropped.
+    Counts, per right unit, how often it aligns to each left unit across all pairs. Keeps a mapping only
+    when its support (count) is >= min_support and its precision (share of that right unit's aligned
+    occurrences going to this particular left unit) is >= min_precision, so rare or inconsistent
+    alignments are not kept. No external dictionary is used -- only the provided train pairs (D-015).
+    Returns a JSON-serializable {right_unit: left_unit} dict, suitable for apply_token_map / normalize_parquet.
+    """
+    counts: dict[str, Counter] = defaultdict(Counter)
+    totals: Counter = Counter()
+    for left, right in pairs:
+        if not left or not right:
+            continue
+        l_units = _ngram_units(left.split())
+        r_units = _ngram_units(right.split())
+        if not l_units or not r_units:
+            continue
+        l_skel = {u: name_skeleton(u) for u in l_units}
+        for r in r_units:
+            r_skel = name_skeleton(r)
+            best_unit, best_sim = "", 0.0
+            for u, u_skel in l_skel.items():
+                sim = JaroWinkler.normalized_similarity(r_skel, u_skel)
+                if sim > best_sim:
+                    best_unit, best_sim = u, sim
+            if best_sim >= align_threshold:
+                counts[r][best_unit] += 1
+                totals[r] += 1
+    result: dict[str, str] = {}
+    for r, cnts in counts.items():
+        left_unit, support = cnts.most_common(1)[0]
+        if support >= min_support and support / totals[r] >= min_precision:
+            result[r] = left_unit
+    return result
+
+
+def apply_token_map(name_norm: str, token_map: dict[str, str] | None, _pattern: re.Pattern | None = None) -> str:
+    """Replace learned right-side phrases with their canonical left-side form (D-012).
+
+    Longest-match-first, whole-word replacement (a multi-word key wins over a shorter key that is its
+    prefix). ``_pattern`` lets a caller reuse a pre-compiled pattern across many rows (normalize_batch
+    does this); when omitted, one is compiled for this call. Returns name_norm unchanged if token_map is
+    empty/None or name_norm is empty.
+    """
+    if not token_map or not name_norm:
+        return name_norm
+    pattern = _pattern or _compile_phrase_pattern(token_map)
+    return pattern.sub(lambda m: token_map[m.group(0)], name_norm)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -639,6 +816,124 @@ def address_numbers(addr_norm: str, postal: str = "") -> str:
 
 
 # --------------------------------------------------------------------------------------------------
+# Address decomposition v2 (DESIGN_V2 S1; D-011): house / unit / street / city / admin
+# --------------------------------------------------------------------------------------------------
+
+# Unit-marker words as they survive normalize_address (ADDR_TOKEN_MAP already expands apt->apartment,
+# fl/flr->floor; a bare "#"/"No." marker is stripped upstream by _HOUSE_MARK_RE and so is NOT
+# distinguishable here from a house number -- "# 1" ends up in `house`, not `unit`; this is a known,
+# accepted limitation, exercised by a test).
+UNIT_WORDS: frozenset[str] = frozenset({"unit", "suite", "apartment", "flat", "shop", "pmb", "floor", "room"})
+# Street-type / landmark words that mark a component as a street (canonical spellings, i.e. what
+# ADDR_TOKEN_MAP maps TO, plus words that already arrive spelled out).
+STREET_WORDS: frozenset[str] = frozenset(
+    """
+    road street avenue boulevard lane drive court circle place square parkway highway terrace trail
+    crescent expressway freeway turnpike way walk close crossing nagar marg colony sector chemin allee
+    route quai cours passage residence rue faubourg impasse
+    """.split()
+)
+# Admin (state/région/département) codes derived only from the hand-written STATE_CANON map already used
+# by normalize_address (no new external list: D-015). By the time addr_norm exists, a matched state
+# component has already been rewritten to its short code, so membership here is a plain string check.
+ADMIN_CODES: frozenset[str] = frozenset(STATE_CANON.values())
+# House-number suffixes attached to a digit ("30 bis", "46 a"): kept with the number, not city/street.
+_NUM_SUFFIX: frozenset[str] = frozenset({"a", "b", "c", "bis", "ter", "quater"})
+# Building/plot qualifier words that only ever precede a house number ("Plot 72", "House 12", the
+# "khasra"/"survey" phrases _ADDR_PHRASES already expands "kh no"/"s no" to): dropped rather than kept in
+# `city`, since they carry no locality information (findings.md: "house/building/plot numbers").
+_HOUSE_QUALIFIERS: frozenset[str] = frozenset({"plot", "house", "khasra", "survey", "block"})
+
+
+def _split_addr_components(addr_norm: str) -> list[str]:
+    """Split addr_norm on the ' , ' component separator normalize_address emits; drops empty pieces."""
+    return [c for c in addr_norm.split(" , ") if c]
+
+
+def parse_address(addr_norm: str, country_norm: str, admin_vocab: frozenset[str] | None = None) -> dict[str, str]:
+    """Decompose a normalized address into house/unit/street/city/admin (DESIGN_V2 S1, D-011).
+
+    Classifies each comma component of ``addr_norm`` by its CONTENT, never its position, because true
+    pairs reorder components between sources ("IA, Iowa City, 1064 Newton Rd" vs the US order). Per
+    component: (1) if the whole component matches an admin code -- ADMIN_CODES (US/Indian state codes,
+    hand-written, derived from STATE_CANON) unioned with the caller-supplied, data-learned
+    ``admin_vocab`` (see learn_admin_vocab) -- it's `admin`; (2) else if it contains a unit-marker word
+    (unit/suite/apartment/flat/shop/pmb/floor/room, or the phrase "post box"), it's `unit`; (3) else every
+    digit token (plus an attached suffix like "bis"/"a") is pulled into `house`, and the remaining words
+    go to `street` if they contain a street-type word (road/avenue/rue/nagar/marg/sector/...), else to
+    `city`. Multiple components can land in the same class (e.g. "Bangalore North" and "Bangalore" both
+    landing in `city`); their text is space-joined, in the order seen. ``country_norm`` is accepted for a
+    future per-country refinement, but classification itself stays country-agnostic on purpose: no
+    hand-written France région/département map is used (D-011, D-015), which is what lets an unseen
+    country degrade gracefully -- a French région with no matching admin_vocab entry simply falls into
+    `city` rather than raising or silently dropping data. Deterministic; '' addr_norm gives all-'' fields.
+    """
+    vocab = ADMIN_CODES if not admin_vocab else ADMIN_CODES | admin_vocab
+    house: list[str] = []
+    unit: list[str] = []
+    street: list[str] = []
+    city: list[str] = []
+    admin: list[str] = []
+    for comp in _split_addr_components(addr_norm):
+        if comp in vocab:
+            admin.append(comp)
+            continue
+        toks = comp.split()
+        if any(t in UNIT_WORDS for t in toks) or ("post" in toks and "box" in toks):
+            unit.append(comp)
+            continue
+        has_digit = any(t.isdigit() for t in toks)
+        rest: list[str] = []
+        for i, t in enumerate(toks):
+            if t.isdigit():
+                house.append(t)
+            elif t in _NUM_SUFFIX and house and i > 0 and toks[i - 1].isdigit():
+                house.append(t)
+            elif t in _HOUSE_QUALIFIERS and has_digit:
+                continue  # "Plot 72" / "House 12": the qualifier carries no locality signal
+            else:
+                rest.append(t)
+        if not rest:
+            continue
+        (street if any(t in STREET_WORDS for t in rest) else city).append(" ".join(rest))
+    return {
+        "house": " ".join(house),
+        "unit": " ".join(unit),
+        "street": " ".join(street),
+        "city": " ".join(city),
+        "admin": " ".join(admin),
+    }
+
+
+def learn_admin_vocab(addr_norms: Iterable[str], min_count: int = 200, max_tokens: int = 3) -> set[str]:
+    """Learn an admin-unit (state/région/département) vocabulary from address data alone (D-011, D-015).
+
+    Counts every non-numeric comma component with at most ``max_tokens`` tokens across ``addr_norms``, and
+    separately counts how often each occurs specifically as the FIRST or LAST component of its address --
+    the typical position of a state/région/département. A component is kept when its total count is >=
+    min_count and at least half of its occurrences are at an edge position. No hand-written French
+    région/département table is used (that's explicitly rejected in D-011): this is how such names get
+    discovered at all. Deterministic for a given input order. Returns a plain set (JSON-serializable via
+    `list(...)`), meant to be passed as ``admin_vocab`` to parse_address / normalize_batch.
+    """
+    total: Counter = Counter()
+    edge: Counter = Counter()
+    for addr in addr_norms:
+        if not addr:
+            continue
+        comps = _split_addr_components(addr)
+        n = len(comps)
+        for i, c in enumerate(comps):
+            toks = c.split()
+            if not toks or len(toks) > max_tokens or any(t.isdigit() for t in toks):
+                continue
+            total[c] += 1
+            if i == 0 or i == n - 1:
+                edge[c] += 1
+    return {c for c, cnt in total.items() if cnt >= min_count and edge[c] * 2 >= cnt}
+
+
+# --------------------------------------------------------------------------------------------------
 # Batch / file processing
 # --------------------------------------------------------------------------------------------------
 
@@ -653,36 +948,68 @@ OUTPUT_SCHEMA = pa.schema(
         ("addr_nums", pa.string()),
         ("script", pa.string()),
         ("country_norm", pa.string()),
+        ("legal_form", pa.string()),
+        ("type_words", pa.string()),
+        ("addr_house", pa.string()),
+        ("addr_unit", pa.string()),
+        ("addr_street", pa.string()),
+        ("addr_city", pa.string()),
+        ("addr_admin", pa.string()),
     ]
 )
 
 
-def normalize_batch(table: pa.Table | pa.RecordBatch) -> pa.Table:
+def normalize_batch(
+    table: pa.Table | pa.RecordBatch,
+    token_map: dict[str, str] | None = None,
+    admin_vocab: frozenset[str] | None = None,
+) -> pa.Table:
     """Normalize a table with entity_id, business_name, business_address, country columns.
 
-    Returns a table with OUTPUT_SCHEMA: entity_id, name_norm, name_core, name_skel, addr_norm, postal, addr_nums,
-    script (of the raw name), country_norm (lowercased, stripped).
+    ``token_map`` (learn_token_map output, D-012) is applied to the normalized name -- before name_core /
+    name_skel are computed, so a right-side abbreviation like "pra li" resolves to "private limited" first
+    -- but name_norm itself is left unmapped, same as name_core already keeps name_norm unstripped.
+    ``admin_vocab`` (learn_admin_vocab output, D-011) extends parse_address's built-in state-code
+    vocabulary. Both are looked up / compiled once per batch, not per row, to hold throughput.
+
+    Returns a table with OUTPUT_SCHEMA: entity_id, name_norm, name_core, name_skel, addr_norm, postal,
+    addr_nums, script (of the raw name), country_norm (lowercased, stripped), legal_form, type_words,
+    addr_house, addr_unit, addr_street, addr_city, addr_admin.
     """
     ids = table.column("entity_id").to_pylist()
     names = table.column("business_name").to_pylist()
     addrs = table.column("business_address").to_pylist()
     countries = table.column("country").to_pylist()
+    pattern = _compile_phrase_pattern(token_map) if token_map else None
     nn, nc, nk, an, po, anum, sc, cn = [], [], [], [], [], [], [], []
+    lf, tw, ah, au, ast, acy, aad = [], [], [], [], [], [], []
     for name, addr, ctry in zip(names, addrs, countries, strict=True):
         n = normalize_name(name)
         a = normalize_address(addr)
         p = extract_postal(addr)
+        c_norm = (ctry or "").strip().lower()
         nn.append(n)
-        core = name_core(n)
+        mapped = apply_token_map(n, token_map, pattern) if token_map else n
+        core = name_core(mapped)
         nc.append(core)
         nk.append(name_skeleton(core))
         an.append(a)
         po.append(p)
         anum.append(address_numbers(a, p))
         sc.append(detect_script(name))
-        cn.append((ctry or "").strip().lower())
+        cn.append(c_norm)
+        _, legal = split_legal_form(mapped)
+        lf.append(legal)
+        tw.append(type_words_of(core))
+        addr_parts = parse_address(a, c_norm, admin_vocab)
+        ah.append(addr_parts["house"])
+        au.append(addr_parts["unit"])
+        ast.append(addr_parts["street"])
+        acy.append(addr_parts["city"])
+        aad.append(addr_parts["admin"])
+    cols = (nn, nc, nk, an, po, anum, sc, cn, lf, tw, ah, au, ast, acy, aad)
     return pa.Table.from_arrays(
-        [pa.array(ids, pa.string()), *(pa.array(c, pa.string()) for c in (nn, nc, nk, an, po, anum, sc, cn))],
+        [pa.array(ids, pa.string()), *(pa.array(c, pa.string()) for c in cols)],
         schema=OUTPUT_SCHEMA,
     )
 
@@ -696,19 +1023,46 @@ def _iter_batches(in_path: str, batch_rows: int):
     yield from pf.iter_batches(batch_size=batch_rows, columns=_IN_COLS)
 
 
-def normalize_parquet(in_path: str, out_path: str, workers: int = 2, batch_rows: int = 50_000) -> int:
+def _load_token_map(path: str | None) -> dict[str, str] | None:
+    """Load a learn_token_map JSON file, or return None if no path was given."""
+    if not path:
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_admin_vocab(path: str | None) -> frozenset[str] | None:
+    """Load a learn_admin_vocab JSON file (a list of strings), or return None if no path was given."""
+    if not path:
+        return None
+    with open(path, encoding="utf-8") as f:
+        return frozenset(json.load(f))
+
+
+def normalize_parquet(
+    in_path: str,
+    out_path: str,
+    workers: int = 2,
+    batch_rows: int = 50_000,
+    token_map_path: str | None = None,
+    admin_vocab_path: str | None = None,
+) -> int:
     """Stream ``in_path`` through normalize_batch and write zstd Parquet to ``out_path``.
 
     Uses a process pool fed through a bounded window of ``2*workers`` in-flight batches (Pool.imap would
-    drain the reader eagerly), so memory stays bounded; output order equals input order.
-    Returns the number of rows written.
+    drain the reader eagerly), so memory stays bounded; output order equals input order. ``token_map_path``
+    / ``admin_vocab_path`` (JSON files produced by learn_token_map / learn_admin_vocab) are loaded once
+    here and passed to every worker call, so the learned maps are computed exactly once regardless of the
+    number of batches or workers. Returns the number of rows written.
     """
+    token_map = _load_token_map(token_map_path)
+    admin_vocab = _load_admin_vocab(admin_vocab_path)
     writer = pq.ParquetWriter(out_path, OUTPUT_SCHEMA, compression="zstd")
     n = 0
     try:
         if workers <= 1:
             for b in _iter_batches(in_path, batch_rows):
-                out = normalize_batch(b)
+                out = normalize_batch(b, token_map, admin_vocab)
                 writer.write_table(out)
                 n += out.num_rows
         else:
@@ -716,7 +1070,7 @@ def normalize_parquet(in_path: str, out_path: str, workers: int = 2, batch_rows:
             with ctx.Pool(workers) as pool:
                 window: deque = deque()
                 for b in _iter_batches(in_path, batch_rows):
-                    window.append(pool.apply_async(normalize_batch, (b,)))
+                    window.append(pool.apply_async(normalize_batch, (b, token_map, admin_vocab)))
                     if len(window) >= 2 * workers:
                         out = window.popleft().get()
                         writer.write_table(out)

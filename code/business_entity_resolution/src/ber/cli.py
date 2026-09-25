@@ -137,6 +137,29 @@ def add_split(p: argparse.ArgumentParser) -> None:
     p.add_argument("--force", action="store_true", help="recompute even if the output exists (normalize only)")
 
 
+def add_block(p: argparse.ArgumentParser) -> None:
+    """Arguments for ``ber block``."""
+    add_split(p)
+    p.add_argument(
+        "--sample-pct",
+        type=int,
+        default=None,
+        help="train only: block a hash sample of right records and dump the uncapped union for ranker training",
+    )
+
+
+def add_nothing(p: argparse.ArgumentParser) -> None:
+    """No extra arguments."""
+
+
+def run_learn_maps(args: argparse.Namespace, cfg: Config) -> int:
+    """Learn the Indic legal-form token map and the admin vocabulary (fit group / unlabeled addresses)."""
+    from ber.pipeline import learn_maps_stage
+
+    _emit(learn_maps_stage(cfg), None)
+    return 0
+
+
 def run_normalize(args: argparse.Namespace, cfg: Config) -> int:
     """Normalize all three sources of a split."""
     from ber.pipeline import normalize_stage
@@ -149,7 +172,23 @@ def run_block(args: argparse.Namespace, cfg: Config) -> int:
     """Generate blocking candidates for a split and report recall (train) and volume."""
     from ber.pipeline import block_stage
 
-    _emit(block_stage(cfg, args.split), None)
+    _emit(block_stage(cfg, args.split, args.sample_pct), None)
+    return 0
+
+
+def run_train_ranker(args: argparse.Namespace, cfg: Config) -> int:
+    """Fit the linear blocking ranker and cap K on the dumped union sample."""
+    from ber.pipeline import train_ranker_stage
+
+    _emit(train_ranker_stage(cfg), None)
+    return 0
+
+
+def run_learn_logodds(args: argparse.Namespace, cfg: Config) -> int:
+    """Learn token log-odds per stacking fold and for the full fit group."""
+    from ber.pipeline import learn_logodds_stage
+
+    _emit(learn_logodds_stage(cfg), None)
     return 0
 
 
@@ -163,11 +202,11 @@ def run_features(args: argparse.Namespace, cfg: Config) -> int:
 
 def add_train(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber train``."""
-    p.add_argument("--name", default="lgbm", help="run name suffix")
+    p.add_argument("--name", default="v2", help="run name suffix")
 
 
 def run_train(args: argparse.Namespace, cfg: Config) -> int:
-    """Train, tune the threshold, and score the holdout; print the run dir."""
+    """Train stage 1 + stage 2, choose the decision rule on tune, score the holdout; print the run dir."""
     from ber.pipeline import train_stage
 
     _emit({"run_dir": str(train_stage(cfg, args.name))}, None)
@@ -177,36 +216,27 @@ def run_train(args: argparse.Namespace, cfg: Config) -> int:
 def add_predict(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber predict``."""
     p.add_argument("--run", type=Path, required=True, help="run dir produced by ber train")
+    p.add_argument("--no-prior-shift", action="store_true", help="skip the EM prior-shift correction (D-010)")
 
 
 def run_predict(args: argparse.Namespace, cfg: Config) -> int:
     """Score test candidates with a trained run and write both submission files."""
     from ber.pipeline import predict_stage
 
-    _emit(predict_stage(cfg, args.run), None)
+    _emit(predict_stage(cfg, args.run, not args.no_prior_shift), None)
     return 0
-
-
-def run_rule(args: argparse.Namespace, cfg: Config) -> int:
-    """Rule baseline: tune a block_score threshold on train, write test submission files."""
-    from ber.pipeline import rule_stage
-
-    _emit(rule_stage(cfg), None)
-    return 0
-
-
-def add_nothing(p: argparse.ArgumentParser) -> None:
-    """No extra arguments."""
 
 
 COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("prepare", "convert organizer TSVs to the Parquet cache", add_prepare, run_prepare),
+    ("learn-maps", "learn Indic legal-form map and admin vocabulary", add_nothing, run_learn_maps),
     ("normalize", "normalize names/addresses of a split", add_split, run_normalize),
-    ("block", "generate blocking candidates for a split", add_split, run_block),
+    ("block", "generate blocking candidates for a split", add_block, run_block),
+    ("train-ranker", "fit the linear blocking ranker on the union sample", add_nothing, run_train_ranker),
+    ("learn-logodds", "learn token log-odds per fold", add_nothing, run_learn_logodds),
     ("features", "compute pair features for a split", add_split, run_features),
-    ("train", "train model, tune threshold, score holdout", add_train, run_train),
+    ("train", "train stage 1 + 2, choose decision rule, score holdout", add_train, run_train),
     ("predict", "predict test and write submission files", add_predict, run_predict),
-    ("rule", "rule baseline from blocking scores; writes submission files", add_nothing, run_rule),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
 ]

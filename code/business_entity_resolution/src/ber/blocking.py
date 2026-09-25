@@ -184,9 +184,7 @@ def token_pass(
             SELECT c, t, ln(1 + (SELECT count(*) FROM R)::DOUBLE / dr) AS idf
             FROM {df} WHERE dl > 0 AND dr > 0 AND dl <= {cap_l} AND dr <= {cap_r}"""
     )
-    con.execute(
-        f"CREATE OR REPLACE TABLE cand_{name} (lid VARCHAR, rid VARCHAR, {name}_score DOUBLE, b INTEGER)"
-    )
+    con.execute(f"CREATE OR REPLACE TABLE cand_{name} (lid VARCHAR, rid VARCHAR, {name}_score DOUBLE, b INTEGER)")
     for b in range(cfg.buckets):
         con.execute(
             f"""INSERT INTO cand_{name}
@@ -280,9 +278,7 @@ def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: 
     for b in range(cfg.buckets):
         selects = []
         for p in passes:
-            cols = ", ".join(
-                f"{c}" if score_cols.get(p) == c else f"NULL::DOUBLE AS {c}" for c in score_cols.values()
-            )
+            cols = ", ".join(f"{c}" if score_cols.get(p) == c else f"NULL::DOUBLE AS {c}" for c in score_cols.values())
             selects.append(f"SELECT lid, rid, '{p}' AS pass, {cols} FROM cand_{p} WHERE b = {b}")
         scored = f"""
             SELECT u.*, jw_core, jw_addr, jacc_addr, num_match, ({n_pass}) AS n_pass
@@ -339,8 +335,7 @@ def run_blocking(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> dict:
         mark(name, f"cand_{name}")
     if cfg.nameonly_enabled:
         short = (
-            "len(list_filter(string_split(addr_norm, ' '), x -> x NOT IN ('', ','))) "
-            f"<= {cfg.nameonly_max_addr_tokens}"
+            f"len(list_filter(string_split(addr_norm, ' '), x -> x NOT IN ('', ','))) <= {cfg.nameonly_max_addr_tokens}"
         )
         sorted_neighbourhood_pass(con, "nameonly", cfg, key="name_core", window=cfg.nameonly_window, r_where=short)
         mark("nameonly", "cand_nameonly")
@@ -422,8 +417,14 @@ def train_ranker(
     legacy = recall_at_k(rc, x @ legacy_w, y, n_true, k_max)
     plateau = learned[-1]
     k = next(i + 1 for i, r in enumerate(learned) if r >= plateau - 0.002)
-    out = {"weights": weights, "k": k, "recall_at_k_learned": learned, "recall_at_k_legacy": legacy,
-           "n_pairs": len(y), "n_true_pairs": n_true}
+    out = {
+        "weights": weights,
+        "k": k,
+        "recall_at_k_learned": learned,
+        "recall_at_k_legacy": legacy,
+        "n_pairs": len(y),
+        "n_true_pairs": n_true,
+    }
     Path(out_path).write_text(json.dumps(out, indent=2))
     log.info("ranker trained k=%d recall@k=%.4f legacy@k=%.4f plateau=%.4f", k, learned[k - 1], legacy[k - 1], plateau)
     return out
