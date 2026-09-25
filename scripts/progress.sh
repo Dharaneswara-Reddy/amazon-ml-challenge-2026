@@ -61,8 +61,14 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                  echo "  latest log lines:"
                  grep -oE "\[[0-9]+\].*|trained lightgbm best_iteration=[0-9]+|oof fold=.*|stage2 features written.*rows=[0-9]+|train_done.*" "$LOG" | tail -3 | cut -c1-120 | sed 's/^/    /' ;;
     predict)     RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
-                 for m in "pred1_test.parquet:score test with stage 1" "s2_test.parquet:build stage-2 test features" "pred2_test.parquet:score test with stage 2" "predict.json:prior shift + decision + write output TSVs"; do
-                   f=${m%%:*}; [ -e "$RUN/$f" ] && echo "    [x] ${m#*:}" || echo "    [ ] ${m#*:}"; done
+                 ms=("pred1_test.parquet:score test with stage 1" "s2_test.parquet:build stage-2 test features" "pred2_test.parquet:score test with stage 2" "predict.json:prior shift + decision + write output TSVs")
+                 for i in 0 1 2 3; do
+                   f=${ms[$i]%%:*}; label=${ms[$i]#*:}; nf=${ms[$((i + 1))]%%:*}
+                   if [ -e "$RUN/$f" ] && { [ $i -eq 3 ] || [ -e "$RUN/$nf" ]; }; then echo "    [x] $label"
+                   elif [ -e "$RUN/$f" ] || { [ $i -eq 0 ] || [ -e "$RUN/${ms[$((i - 1))]%%:*}" ]; }; then
+                     sz=$(du -h "$RUN/$f" 2>/dev/null | cut -f1); echo "    [>] $label   ${sz:+(output so far: $sz)}"
+                   else echo "    [ ] $label"; fi
+                 done
                  grep -oE "prior_shift.*|write_outputs.*" "$LOG" | tail -2 | cut -c1-140 | sed 's/^/    /' ;;
     *)           tail -3 "$LOG" | cut -c25-160 | sed 's/^/  /' ;;
   esac
