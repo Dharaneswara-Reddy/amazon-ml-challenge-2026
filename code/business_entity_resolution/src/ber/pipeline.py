@@ -17,6 +17,7 @@ from typing import Any
 import duckdb
 import lightgbm as lgb
 import numpy as np
+import pyarrow.parquet as pq
 
 from ber import io
 from ber.blocking import BlockingConfig, active_passes, recall_by_pass, register_inputs, run_blocking, train_ranker
@@ -390,9 +391,18 @@ def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, grou
     }
 
 
+def _complete(path: Path) -> bool:
+    """True if ``path`` is a finished parquet file (its footer is written; a killed writer leaves none)."""
+    try:
+        pq.ParquetFile(path).metadata
+        return True
+    except Exception:
+        return False
+
+
 def _best_iter(booster: lgb.Booster) -> int:
     """Best iteration of a freshly trained booster, or the tree count of one loaded from a saved (best-only) model."""
-    return int(booster.best_iteration or booster.current_iteration())
+    return int(booster.best_iteration if booster.best_iteration > 0 else booster.current_iteration())
 
 
 def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None) -> Path:
@@ -400,14 +410,16 @@ def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None) -> Pa
 
     The rule (threshold vs expected-F0.5) and its parameters come from the tune group only (choose_decision);
     the holdout is scored once. Everything is recorded in the run manifest.
-    resume: an earlier run dir of this function; every model / prediction / feature file already present there is
-    reused (files are only written once complete, so presence means done) and only the missing steps run.
+    resume: an earlier run dir of this function; every model and every complete prediction / feature parquet
+    already there is reused, and only the missing steps run.
     """
     run = Path(resume) if resume else new_run_dir(cfg, name)
 
     def have(fname: str) -> bool:
         """True when resuming and ``fname`` already exists in the run dir."""
-        return resume is not None and (run / fname).exists()
+        if resume is None or not (run / fname).exists():
+            return False
+        return fname.endswith(".txt") or _complete(run / fname)
 
     seed, threads, rows = int(cfg.seed), int(cfg.engine.duckdb_threads), int(cfg.engine.batch_rows)
     mcfg = dict(cfg.get("model", {}))
@@ -510,8 +522,13 @@ def _append_experiment(cfg: Config, run: Path, metrics: dict[str, Any]) -> None:
         fh.write(row)
 
 
-def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True) -> dict[str, Any]:
-    """Score test: stage 1 → stage-2 features → stage 2 → prior-shift correction (D-010) → decision → write outputs."""
+def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True, resume: bool = False) -> dict[str, Any]:
+    """Score test: stage 1 → stage-2 features → stage 2 → prior-shift correction (D-010) → decision → write outputs.
+
+    resume: reuse complete pred1_test / s2_test / pred2_test parquets already in ``run_dir``. The decision works on
+    integer entity / right-record indices only; ids stay in DuckDB and are joined back for the selected pairs
+    (holding 30M id strings as Python objects exceeded the 15 GB laptop and was OOM-killed).
+    """
     params = json.loads((run_dir / "decision_params.json").read_text())
     manifest = json.loads((run_dir / "manifest.json").read_text())
     b1 = lgb.Booster(model_file=str(run_dir / "model1.txt"))
@@ -519,21 +536,30 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True) -> dict[
     rows = int(cfg.engine.batch_rows)
     con = connect(cfg, run_dir / "work_test.duckdb")
     try:
+        def done(fname: str) -> bool:
+            """True when resuming and ``fname`` is a complete parquet in the run dir."""
+            return resume and _complete(run_dir / fname)
+
         with stage("predict", run=run_dir):
-            predict_file(b1, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", rows)
-            write_stage2_features(
-                con, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", run_dir / "s2_test.parquet"
-            )
-            predict_file(
-                b2, run_dir / "s2_test.parquet", run_dir / "pred2_test.parquet", rows, features=MODEL2_FEATURES
-            )
-        d = _fetch_numpy(
-            con,
-            f"""SELECT lid, dense_rank() OVER (ORDER BY lid) - 1 AS li, dense_rank() OVER (ORDER BY rid) - 1 AS rc,
-                       rid, p
-                FROM read_parquet('{run_dir / "pred2_test.parquet"}')""",
+            if not done("pred1_test.parquet"):
+                predict_file(b1, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", rows)
+            if not done("s2_test.parquet"):
+                write_stage2_features(
+                    con, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", run_dir / "s2_test.parquet"
+                )
+            if not done("pred2_test.parquet"):
+                predict_file(
+                    b2, run_dir / "s2_test.parquet", run_dir / "pred2_test.parquet", rows, features=MODEL2_FEATURES
+                )
+        con.execute(
+            f"""CREATE OR REPLACE TEMP TABLE pt AS
+                SELECT row_number() OVER () - 1 AS i, lid, rid, p,
+                       dense_rank() OVER (ORDER BY lid) - 1 AS li, dense_rank() OVER (ORDER BY rid) - 1 AS rc
+                FROM read_parquet('{run_dir / "pred2_test.parquet"}')"""
         )
+        d = _fetch_numpy(con, "SELECT li, rc, p FROM pt ORDER BY i")
         li, rc, p = d["li"].astype(np.int64), d["rc"].astype(np.int64), d["p"].astype(np.float64)
+        del d
         info: dict[str, Any] = {"rule": params["rule"]}
         if prior_shift:
             is_best = best_per_right(rc, li, p)
@@ -551,8 +577,9 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True) -> dict[
             mask = is_best & (p_cal >= t_cal)
         else:
             mask = decide(params, li, rc, p)
-        con.register("sel", {"s1_id": d["lid"][mask], "match_id": d["rid"][mask]})
-        con.execute("CREATE TEMP TABLE matches AS SELECT * FROM sel")
+        con.register("sel", {"i": np.flatnonzero(mask).astype(np.int64)})
+        con.execute("CREATE TEMP TABLE matches AS SELECT pt.lid AS s1_id, pt.rid AS match_id FROM pt JOIN sel USING (i)")
+        con.execute("DROP TABLE pt")
         _output_views(con, cfg)
         with stage("write_outputs") as st:
             result = write_outputs(con, "s1", "cands", "matches", "valid_right", Path(cfg.paths.output_dir))

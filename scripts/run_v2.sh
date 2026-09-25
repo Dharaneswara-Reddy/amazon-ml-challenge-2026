@@ -6,6 +6,7 @@
 #   scripts/run_v2.sh rest      resume after block_train (e.g. after the recall gate was reviewed and accepted)
 #   scripts/run_v2.sh rest_features   resume at the feature step (candidates and log-odds already built)
 #   scripts/run_v2.sh train_resume <run_dir>   finish an interrupted train (reuses its saved models) → predict
+#   scripts/run_v2.sh predict_resume <run_dir>   finish an interrupted predict (reuses complete test predictions)
 #   scripts/run_v2.sh all       prep → train → predict in one unattended chain (live view: scripts/progress.sh)
 # Heavy steps take the shared lock so only one runs at a time; every step logs to artifacts/logs/v2_<step>.log.
 set -euo pipefail
@@ -48,6 +49,12 @@ case "${1:?usage: run_v2.sh prep|train|predict <run_dir>|all}" in
     RUN=${2:?usage: run_v2.sh train_resume <run_dir>}
     run train train --name v2 --resume "$RUN"
     "$0" predict "$RUN"
+    step "all done"
+    ;;
+  predict_resume)
+    RUN=${2:?usage: run_v2.sh predict_resume <run_dir>}
+    run predict predict --run "$RUN" --resume
+    scripts/freeze_submission.sh "$RUN" "v2: blocking v2 + features v2 + stage 2 + tune-chosen decision + prior shift"
     step "all done"
     ;;
   predict)
