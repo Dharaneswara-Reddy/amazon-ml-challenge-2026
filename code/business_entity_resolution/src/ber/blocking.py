@@ -4,10 +4,12 @@ Left = Source 1 records, Right = Source 2 ∪ Source 3 records. Every true pair 
 right record matches at most one left record, so candidates are generated within country and capped per right
 record (top-k left candidates per right record), which bounds the output at k × |Right| pairs.
 
-Passes:
-  tok    rare-token overlap on name_core, IDF-weighted; tokens more frequent than a cap are skipped.
-  sn_*   sorted neighbourhood on a name key (plain, reversed, token-sorted): each right record is paired with the
-         w nearest left records in sort order within its country.
+Business names in this data are highly repetitive (half of Source 1 shares its exact name with another entity) while
+name + address is unique, so passes combine name and address evidence:
+  tok    IDF-weighted overlap of rare-ish name and address tokens (namespaced n:/a:); frequent tokens are skipped.
+  sn_*   sorted neighbourhood on composite keys (name + sorted address words, address words + name, skeleton + house
+         numbers, ...): each right record is paired with the w nearest left records in sort order within its country.
+Survivors are ranked per right record by a cheap name + address similarity and the top-k kept.
 """
 
 from __future__ import annotations
@@ -20,12 +22,29 @@ import duckdb
 
 log = logging.getLogger(__name__)
 
+
+def addr_words_sql(col: str = "addr_norm") -> str:
+    """SQL for the sorted, space-joined non-numeric address words (order-insensitive address key)."""
+    return (
+        f"array_to_string(list_sort(list_filter(string_split({col}, ' '), "
+        "x -> length(x) >= 2 AND NOT regexp_matches(x, '^[0-9]+$'))), ' ')"
+    )
+
+
+AW = addr_words_sql()
 SN_KEYS = {
     "sn_plain": "name_core",
     "sn_rev": "reverse(name_core)",
     "sn_sorted": "array_to_string(list_sort(string_split(name_core, ' ')), ' ')",
     "sn_skel": "name_skel",
+    "sn_name": "name_core",
+    "sn_name_addr": f"name_core || '|' || {AW}",
+    "sn_addr_name": f"{AW} || '|' || name_core",
+    "sn_skel_nums": "name_skel || '|' || addr_nums",
+    "sn_nums_addr": f"addr_nums || '|' || {AW}",
+    "sn_addr_skel": f"{AW} || '|' || name_skel",
 }
+DEFAULT_SN_KEYS = ("sn_name", "sn_name_addr", "sn_addr_name", "sn_skel_nums", "sn_nums_addr", "sn_addr_skel")
 
 
 @dataclass(frozen=True)
@@ -33,10 +52,12 @@ class BlockingConfig:
     """Parameters for all blocking passes."""
 
     token_min_len: int = 2
-    token_df_cap: int = 300
+    token_fields: tuple[str, ...] = ("name", "addr")
+    token_df_cap: int = 100
+    token_df_cap_right: int = 500
     token_top_k: int = 5
     sn_window: int = 3
-    sn_keys: tuple[str, ...] = ("sn_plain", "sn_rev", "sn_sorted")
+    sn_keys: tuple[str, ...] = DEFAULT_SN_KEYS
     final_top_k: int = 5
     buckets: int = 8
     extra: dict = field(default_factory=dict)
@@ -45,7 +66,7 @@ class BlockingConfig:
 def register_inputs(con: duckdb.DuckDBPyConnection, left_path: str, right_paths: list[str]) -> dict[str, int]:
     """Create views L and R over normalized parquet files and return their row counts.
 
-    Inputs must contain entity_id, name_core, country_norm (plus other normalized columns used by features).
+    Inputs must contain entity_id, name_core, name_skel, addr_norm, addr_nums, country_norm.
     """
     rights = ", ".join(f"'{p}'" for p in right_paths)
     con.execute(f"CREATE OR REPLACE VIEW L AS SELECT * FROM read_parquet('{left_path}')")
@@ -55,14 +76,23 @@ def register_inputs(con: duckdb.DuckDBPyConnection, left_path: str, right_paths:
     return {"n_left": n_left, "n_right": n_right}
 
 
+def _token_select(side: str, cfg: BlockingConfig) -> str:
+    """SQL yielding (entity_id, country_norm, t) with field-namespaced tokens for one side."""
+    cols = {"name": ("n:", "name_core"), "addr": ("a:", "addr_norm")}
+    parts = [
+        f"""SELECT entity_id, country_norm, '{prefix}' || t AS t
+            FROM {side}, unnest(string_split({col}, ' ')) u(t) WHERE length(t) >= {cfg.token_min_len}"""
+        for prefix, col in (cols[f] for f in cfg.token_fields)
+    ]
+    return " UNION ALL ".join(parts)
+
+
 def build_token_tables(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> None:
     """Materialize distinct (id, country, token) tables for L and R and per-country token frequencies."""
     for side in ("L", "R"):
         con.execute(
             f"""CREATE OR REPLACE TEMP TABLE {side}tok AS
-                SELECT DISTINCT entity_id AS id, country_norm AS c, t
-                FROM {side}, unnest(string_split(name_core, ' ')) u(t)
-                WHERE length(t) >= {cfg.token_min_len}"""
+                SELECT DISTINCT entity_id AS id, country_norm AS c, t FROM ({_token_select(side, cfg)})"""
         )
     con.execute(
         """CREATE OR REPLACE TEMP TABLE tokdf AS
@@ -72,13 +102,13 @@ def build_token_tables(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> N
     )
 
 
-def estimate_token_pairs(con: duckdb.DuckDBPyConnection, caps: list[int]) -> list[dict]:
-    """For each df cap, return the pair volume sum(dl*dr) the token pass would generate (before top-k)."""
+def estimate_token_pairs(con: duckdb.DuckDBPyConnection, caps: list[int], right_factor: int = 5) -> list[dict]:
+    """For each left df cap (right cap = cap*right_factor), return the token-level pair volume sum(dl*dr)."""
     rows = []
     for cap in caps:
         n_pairs, n_tokens = con.execute(
             f"""SELECT coalesce(sum(dl::HUGEINT * dr), 0), count(*)
-                FROM tokdf WHERE dl > 0 AND dr > 0 AND dl <= {cap} AND dr <= {cap}"""
+                FROM tokdf WHERE dl > 0 AND dr > 0 AND dl <= {cap} AND dr <= {cap * right_factor}"""
         ).fetchone()
         rows.append({"cap": cap, "pairs": int(n_pairs), "tokens": n_tokens})
     return rows
@@ -93,7 +123,7 @@ def token_pass(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> None:
         f"""CREATE OR REPLACE TEMP TABLE tokkeep AS
             SELECT c, t, ln(1 + (SELECT count(*) FROM R)::DOUBLE / dr) AS idf
             FROM tokdf
-            WHERE dl > 0 AND dr > 0 AND dl <= {cfg.token_df_cap} AND dr <= {cfg.token_df_cap}"""
+            WHERE dl > 0 AND dr > 0 AND dl <= {cfg.token_df_cap} AND dr <= {cfg.token_df_cap_right}"""
     )
     con.execute("CREATE OR REPLACE TEMP TABLE cand_tok (lid VARCHAR, rid VARCHAR, tok_score DOUBLE)")
     for b in range(cfg.buckets):
@@ -138,11 +168,17 @@ def sorted_neighbourhood_pass(con: duckdb.DuckDBPyConnection, name: str, cfg: Bl
     )
 
 
-def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: list[str]) -> None:
-    """Union all pass outputs into table candidates with per-pass flags and a cheap similarity; keep top-k per rid.
+def _jacc_sql(a: str, b: str) -> str:
+    """SQL for token-set Jaccard between two space-separated string expressions."""
+    sa, sb = f"string_split({a}, ' ')", f"string_split({b}, ' ')"
+    return f"len(list_intersect({sa}, {sb}))::DOUBLE / greatest(len(list_distinct(list_concat({sa}, {sb}))), 1)"
 
-    The cheap score is Jaro-Winkler on name_core plus a bonus for token-pass hits; it only decides which
-    candidates survive the per-right-record cap, the matching model re-scores everything.
+
+def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: list[str]) -> None:
+    """Union all pass outputs into table candidates with per-pass flags and cheap similarities; keep top-k per rid.
+
+    block_score = JW(name_core) + JW(sorted address words) + token Jaccard(address) + 0.3·[shared house number]. On a
+    2% train sample this ranking keeps 95.2% of true pairs in the top 5 per right record (name-only JW: 81.3%).
     """
     selects = []
     for p in passes:
@@ -154,16 +190,25 @@ def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: 
             SELECT lid, rid, {flags}, max(tok_score) AS tok_score
             FROM ({" UNION ALL ".join(selects)}) GROUP BY lid, rid"""
     )
+    aw_l, aw_r = addr_words_sql("l.addr_norm"), addr_words_sql("r.addr_norm")
     con.execute(
         f"""CREATE OR REPLACE TABLE candidates AS
-            SELECT u.*, jaro_winkler_similarity(l.name_core, r.name_core) AS jw_core
-            FROM cand_union u
-            JOIN L l ON l.entity_id = u.lid
-            JOIN R r ON r.entity_id = u.rid
-            QUALIFY row_number() OVER (
-              PARTITION BY u.rid
-              ORDER BY jaro_winkler_similarity(l.name_core, r.name_core)
-                       + 0.05 * coalesce(u.tok_score, 0) DESC, u.lid) <= {cfg.final_top_k}"""
+            SELECT * EXCLUDE (rk) FROM (
+              SELECT u.*, jw_core, jw_addr, jacc_addr, num_match,
+                     jw_core + jw_addr + jacc_addr + 0.3 * num_match AS block_score,
+                     row_number() OVER (
+                       PARTITION BY u.rid ORDER BY jw_core + jw_addr + jacc_addr + 0.3 * num_match DESC, u.lid
+                     ) AS rk
+              FROM cand_union u
+              JOIN L l ON l.entity_id = u.lid
+              JOIN R r ON r.entity_id = u.rid,
+              LATERAL (SELECT
+                jaro_winkler_similarity(l.name_core, r.name_core) AS jw_core,
+                jaro_winkler_similarity({aw_l}, {aw_r}) AS jw_addr,
+                {_jacc_sql("l.addr_norm", "r.addr_norm")} AS jacc_addr,
+                (len(list_intersect(string_split(l.addr_nums, ' '), string_split(r.addr_nums, ' '))) > 0)::INT
+                  AS num_match))
+            WHERE rk <= {cfg.final_top_k}"""
     )
 
 
@@ -193,7 +238,7 @@ def run_blocking(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> dict:
 
 
 def recall_by_pass(con: duckdb.DuckDBPyConnection, gt_pairs_sql: str, passes: list[str]) -> dict:
-    """Pair completeness overall and per pass flag, against GT pairs given as SQL with columns (s1_id, match_id)."""
+    """Pair completeness overall and per pass flag (after the top-k cut), against GT pairs (s1_id, match_id)."""
     flag_cols = ", ".join(f"avg(coalesce(c.in_{p}, false)::INT) AS recall_{p}" for p in passes)
     row = con.execute(
         f"""SELECT count(*) AS gt_pairs, avg((c.lid IS NOT NULL)::INT) AS recall_final, {flag_cols}

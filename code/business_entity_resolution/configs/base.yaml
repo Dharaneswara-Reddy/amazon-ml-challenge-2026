@@ -16,12 +16,14 @@ engine:
 
 blocking:
   token_min_len: 2
-  token_df_cap: 300          # skip name tokens more frequent than this (per country, per side)
-  token_top_k: 5             # left candidates kept per right record from the token pass
-  sn_window: 3               # sorted-neighbourhood window per side
-  sn_keys: [sn_plain, sn_rev, sn_sorted, sn_skel]
-  final_top_k: 5             # left candidates kept per right record after union
-  buckets: 16                # hash buckets for the token join (bounds memory)
+  token_fields: [name, addr]   # IDF pass over namespaced name + address tokens
+  token_df_cap: 100            # skip tokens in more than this many Source-1 records (per country)
+  token_df_cap_right: 500      # ... or in more than this many Source-2/3 records
+  token_top_k: 5               # left candidates kept per right record from the token pass
+  sn_window: 3                 # sorted-neighbourhood window per side
+  sn_keys: [sn_name, sn_name_addr, sn_addr_name, sn_skel_nums, sn_nums_addr, sn_addr_skel]
+  final_top_k: 5               # left candidates kept per right record after union (ranked by block_score)
+  buckets: 16                  # hash buckets for the token join (bounds memory)
 
 model:
   params: {}                 # overrides of ber.model.DEFAULT_PARAMS

@@ -8,29 +8,37 @@ import pytest
 from ber.blocking import BlockingConfig, estimate_token_pairs, recall_by_pass, register_inputs, run_blocking
 
 LEFT = [
-    ("S1-1", "ram marketing", "india"),
-    ("S1-2", "west siddhi", "us"),
-    ("S1-3", "blueridge medical centre", "india"),
-    ("S1-4", "pearla king", "us"),
-    ("S1-5", "sharma traders", "india"),
+    ("S1-1", "ram marketing", "india", "12 mg road indore"),
+    ("S1-2", "west siddhi", "us", "3109 sunshine drive clinton md"),
+    ("S1-3", "blueridge medical centre", "india", "23 jvpd road mumbai mh"),
+    ("S1-4", "pearla king", "us", "10756 blackridge way knoxville tn"),
+    ("S1-5", "sharma traders", "india", "4 ring road delhi dl"),
+    ("S1-6", "ram marketing", "india", "77 station road patna br"),
 ]
 RIGHT = [
-    ("S2-1", "ram marketing", "india"),
-    ("S3-1", "ram marketng", "india"),
-    ("S2-2", "west sidhi", "us"),
-    ("S3-2", "medical centre blueridge", "india"),
-    ("S2-3", "king pearla", "us"),
-    ("S3-3", "sharma textiles", "india"),
-    ("S2-4", "ram marketing", "us"),
+    ("S2-1", "ram marketing", "india", "12 mg road indore"),
+    ("S3-1", "ram marketng", "india", "mg road 12 indore"),
+    ("S2-2", "west sidhi", "us", "3109 sunshine drive clinton md"),
+    ("S3-2", "medical centre blueridge", "india", "a 23 jvpd road mumbai mh"),
+    ("S2-3", "king pearla", "us", "10796 blackridge way knoxville tn"),
+    ("S3-3", "sharma textiles", "india", "90 mall road shimla hp"),
+    ("S2-4", "ram marketing", "us", "5 main street austin tx"),
 ]
 GT = [("S1-1", "S2-1"), ("S1-1", "S3-1"), ("S1-2", "S2-2"), ("S1-3", "S3-2"), ("S1-4", "S2-3")]
 
 
 def _write(con: duckdb.DuckDBPyConnection, rows: list[tuple], path: Path) -> None:
-    """Write (entity_id, name_core, country_norm) rows to parquet."""
-    con.execute("CREATE OR REPLACE TEMP TABLE t (entity_id VARCHAR, name_core VARCHAR, country_norm VARCHAR)")
-    con.executemany("INSERT INTO t VALUES (?, ?, ?)", rows)
-    con.execute(f"COPY t TO '{path}' (FORMAT parquet)")
+    """Write (entity_id, name_core, country_norm, addr_norm) rows plus derived skeleton/number columns to parquet."""
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE t (entity_id VARCHAR, name_core VARCHAR, country_norm VARCHAR, addr_norm VARCHAR)"
+    )
+    con.executemany("INSERT INTO t VALUES (?, ?, ?, ?)", rows)
+    con.execute(
+        f"""COPY (SELECT *, regexp_replace(name_core, '[aeiou]', '', 'g') AS name_skel,
+                   array_to_string(list_sort(list_filter(string_split(addr_norm, ' '),
+                     x -> regexp_matches(x, '^[0-9]+$'))), ' ') AS addr_nums
+                 FROM t) TO '{path}' (FORMAT parquet)"""
+    )
 
 
 @pytest.fixture()
@@ -48,7 +56,7 @@ def test_blocking_finds_all_true_pairs(con: duckdb.DuckDBPyConnection) -> None:
     """Typos, word order and reordered tokens are all recovered on the toy world."""
     run_blocking(con, BlockingConfig(sn_window=2, final_top_k=3, buckets=2))
     gt_sql = "SELECT * FROM (VALUES " + ", ".join(f"('{a}','{b}')" for a, b in GT) + ") g(s1_id, match_id)"
-    stats = recall_by_pass(con, gt_sql, ["tok", "sn_plain", "sn_rev", "sn_sorted"])
+    stats = recall_by_pass(con, gt_sql, ["tok", *BlockingConfig().sn_keys])
     assert stats["recall_final"] == 1.0
 
 

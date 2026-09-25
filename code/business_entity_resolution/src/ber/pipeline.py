@@ -51,8 +51,9 @@ def feat_path(cfg: Config, split: str, group: str | None = None) -> Path:
 def blocking_config(cfg: Config) -> BlockingConfig:
     """Build the BlockingConfig from the `blocking` config section (defaults for missing keys)."""
     section = dict(cfg.get("blocking", {}))
-    if "sn_keys" in section:
-        section["sn_keys"] = tuple(section["sn_keys"])
+    for key in ("sn_keys", "token_fields"):
+        if key in section:
+            section[key] = tuple(section[key])
     return BlockingConfig(**section)
 
 

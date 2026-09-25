@@ -23,15 +23,22 @@ from rapidfuzz.distance import JaroWinkler
 
 log = logging.getLogger(__name__)
 
-FEATURE_SET_VERSION = "v1"
+FEATURE_SET_VERSION = "v1b"
 
 SQL_FEATURES = [
     "in_tok",
-    "in_sn_plain",
-    "in_sn_rev",
-    "in_sn_sorted",
+    "in_sn_name",
+    "in_sn_name_addr",
+    "in_sn_addr_name",
+    "in_sn_skel_nums",
+    "in_sn_nums_addr",
+    "in_sn_addr_skel",
     "tok_score",
     "jw_core",
+    "jw_addr",
+    "jacc_addr",
+    "num_match",
+    "block_score",
     "r_is_s3",
     "r_n_cand",
     "r_rank",
@@ -92,11 +99,11 @@ def pair_frame_sql(label_sql: str | None = None, where_sql: str | None = None) -
          c AS (
            SELECT *,
              count(*) OVER (PARTITION BY rid) AS r_n_cand,
-             rank() OVER (PARTITION BY rid ORDER BY jw_core DESC) AS r_rank,
-             max(jw_core) OVER (PARTITION BY rid) - jw_core AS r_gap,
+             rank() OVER (PARTITION BY rid ORDER BY block_score DESC) AS r_rank,
+             max(block_score) OVER (PARTITION BY rid) - block_score AS r_gap,
              count(*) OVER (PARTITION BY lid) AS l_n_cand,
-             rank() OVER (PARTITION BY lid ORDER BY jw_core DESC) AS l_rank,
-             max(jw_core) OVER (PARTITION BY lid) - jw_core AS l_gap
+             rank() OVER (PARTITION BY lid ORDER BY block_score DESC) AS l_rank,
+             max(block_score) OVER (PARTITION BY lid) - block_score AS l_gap
            FROM candidates)
     SELECT c.lid, c.rid,
       l.name_norm AS l_name_norm, r.name_norm AS r_name_norm,
@@ -105,9 +112,11 @@ def pair_frame_sql(label_sql: str | None = None, where_sql: str | None = None) -
       l.addr_norm AS l_addr_norm, r.addr_norm AS r_addr_norm,
       l.postal AS l_postal, r.postal AS r_postal,
       l.addr_nums AS l_addr_nums, r.addr_nums AS r_addr_nums,
-      c.in_tok::TINYINT AS in_tok, c.in_sn_plain::TINYINT AS in_sn_plain,
-      c.in_sn_rev::TINYINT AS in_sn_rev, c.in_sn_sorted::TINYINT AS in_sn_sorted,
-      coalesce(c.tok_score, 0) AS tok_score, c.jw_core,
+      c.in_tok::TINYINT AS in_tok, c.in_sn_name::TINYINT AS in_sn_name,
+      c.in_sn_name_addr::TINYINT AS in_sn_name_addr, c.in_sn_addr_name::TINYINT AS in_sn_addr_name,
+      c.in_sn_skel_nums::TINYINT AS in_sn_skel_nums, c.in_sn_nums_addr::TINYINT AS in_sn_nums_addr,
+      c.in_sn_addr_skel::TINYINT AS in_sn_addr_skel,
+      coalesce(c.tok_score, 0) AS tok_score, c.jw_core, c.jw_addr, c.jacc_addr, c.num_match, c.block_score,
       (c.rid LIKE 'S3-%')::TINYINT AS r_is_s3,
       c.r_n_cand, c.r_rank, c.r_gap, c.l_n_cand, c.l_rank, c.l_gap,
       lf.f AS l_name_freq, coalesce(rf.f, 0) AS r_name_freq,
