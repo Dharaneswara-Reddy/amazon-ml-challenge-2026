@@ -91,11 +91,11 @@ def build_token_tables(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> N
     """Materialize distinct (id, country, token) tables for L and R and per-country token frequencies."""
     for side in ("L", "R"):
         con.execute(
-            f"""CREATE OR REPLACE TEMP TABLE {side}tok AS
+            f"""CREATE OR REPLACE TABLE {side}tok AS
                 SELECT DISTINCT entity_id AS id, country_norm AS c, t FROM ({_token_select(side, cfg)})"""
         )
     con.execute(
-        """CREATE OR REPLACE TEMP TABLE tokdf AS
+        """CREATE OR REPLACE TABLE tokdf AS
            SELECT c, t, coalesce(l.dl, 0) AS dl, coalesce(r.dr, 0) AS dr
            FROM (SELECT c, t, count(*) dl FROM Ltok GROUP BY ALL) l
            FULL JOIN (SELECT c, t, count(*) dr FROM Rtok GROUP BY ALL) r USING (c, t)"""
@@ -120,12 +120,12 @@ def token_pass(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> None:
     Work is split into hash buckets of right ids so each GROUP BY stays small enough for the memory limit.
     """
     con.execute(
-        f"""CREATE OR REPLACE TEMP TABLE tokkeep AS
+        f"""CREATE OR REPLACE TABLE tokkeep AS
             SELECT c, t, ln(1 + (SELECT count(*) FROM R)::DOUBLE / dr) AS idf
             FROM tokdf
             WHERE dl > 0 AND dr > 0 AND dl <= {cfg.token_df_cap} AND dr <= {cfg.token_df_cap_right}"""
     )
-    con.execute("CREATE OR REPLACE TEMP TABLE cand_tok (lid VARCHAR, rid VARCHAR, tok_score DOUBLE)")
+    con.execute("CREATE OR REPLACE TABLE cand_tok (lid VARCHAR, rid VARCHAR, tok_score DOUBLE)")
     for b in range(cfg.buckets):
         con.execute(
             f"""INSERT INTO cand_tok
@@ -148,7 +148,7 @@ def sorted_neighbourhood_pass(con: duckdb.DuckDBPyConnection, name: str, cfg: Bl
     key = SN_KEYS[name]
     w = cfg.sn_window
     con.execute(
-        f"""CREATE OR REPLACE TEMP TABLE sn AS
+        f"""CREATE OR REPLACE TABLE sn AS
             SELECT id, side, c,
                    sum(CASE WHEN side = 0 THEN 1 ELSE 0 END)
                      OVER (PARTITION BY c ORDER BY k, side, id ROWS UNBOUNDED PRECEDING) AS lcum
@@ -159,7 +159,7 @@ def sorted_neighbourhood_pass(con: duckdb.DuckDBPyConnection, name: str, cfg: Bl
     # `target` must be a materialized column: with `l.lcum = r.lcum + off` DuckDB hash-joins on country only and
     # filters afterwards, which is quadratic within a country.
     con.execute(
-        f"""CREATE OR REPLACE TEMP TABLE cand_{name} AS
+        f"""CREATE OR REPLACE TABLE cand_{name} AS
             SELECT l.id AS lid, r.id AS rid, min(abs(r.off - 0.5)) AS sn_dist
             FROM (SELECT s.id, s.c, o.off, s.lcum + o.off AS target
                   FROM sn s CROSS JOIN range({-w + 1}, {w + 1}) o(off) WHERE s.side = 1) r
@@ -179,37 +179,46 @@ def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: 
 
     block_score = JW(name_core) + JW(sorted address words) + token Jaccard(address) + 0.3·[shared house number]. On a
     2% train sample this ranking keeps 95.2% of true pairs in the top 5 per right record (name-only JW: 81.3%).
+    Runs per hash bucket of right ids so the union of all passes (~40 pairs per right record) never has to be held
+    or spilled at once.
     """
-    selects = []
-    for p in passes:
-        score_col = "tok_score" if p == "tok" else "NULL::DOUBLE AS tok_score"
-        selects.append(f"SELECT lid, rid, '{p}' AS pass, {score_col} FROM cand_{p}")
+    for side in ("L", "R"):
+        con.execute(
+            f"""CREATE OR REPLACE TABLE {side}x AS
+                SELECT entity_id, name_core, addr_norm, addr_nums, {AW} AS aw FROM {side}"""
+        )
     flags = ", ".join(f"bool_or(pass = '{p}') AS in_{p}" for p in passes)
-    con.execute(
-        f"""CREATE OR REPLACE TEMP TABLE cand_union AS
-            SELECT lid, rid, {flags}, max(tok_score) AS tok_score
-            FROM ({" UNION ALL ".join(selects)}) GROUP BY lid, rid"""
-    )
-    aw_l, aw_r = addr_words_sql("l.addr_norm"), addr_words_sql("r.addr_norm")
-    con.execute(
-        f"""CREATE OR REPLACE TABLE candidates AS
+    con.execute("DROP TABLE IF EXISTS candidates")
+    for b in range(cfg.buckets):
+        where = f"hash(rid) % {cfg.buckets} = {b}"
+        selects = [
+            f"SELECT lid, rid, '{p}' AS pass, {'tok_score' if p == 'tok' else 'NULL::DOUBLE'} AS tok_score "
+            f"FROM cand_{p} WHERE {where}"
+            for p in passes
+        ]
+        body = f"""
             SELECT * EXCLUDE (rk) FROM (
               SELECT u.*, jw_core, jw_addr, jacc_addr, num_match,
                      jw_core + jw_addr + jacc_addr + 0.3 * num_match AS block_score,
                      row_number() OVER (
                        PARTITION BY u.rid ORDER BY jw_core + jw_addr + jacc_addr + 0.3 * num_match DESC, u.lid
                      ) AS rk
-              FROM cand_union u
-              JOIN L l ON l.entity_id = u.lid
-              JOIN R r ON r.entity_id = u.rid,
+              FROM (SELECT lid, rid, {flags}, max(tok_score) AS tok_score
+                    FROM ({" UNION ALL ".join(selects)}) GROUP BY lid, rid) u
+              JOIN Lx l ON l.entity_id = u.lid
+              JOIN Rx r ON r.entity_id = u.rid,
               LATERAL (SELECT
                 jaro_winkler_similarity(l.name_core, r.name_core) AS jw_core,
-                jaro_winkler_similarity({aw_l}, {aw_r}) AS jw_addr,
+                jaro_winkler_similarity(l.aw, r.aw) AS jw_addr,
                 {_jacc_sql("l.addr_norm", "r.addr_norm")} AS jacc_addr,
                 (len(list_intersect(string_split(l.addr_nums, ' '), string_split(r.addr_nums, ' '))) > 0)::INT
                   AS num_match))
             WHERE rk <= {cfg.final_top_k}"""
-    )
+        if b == 0:
+            con.execute(f"CREATE TABLE candidates AS {body}")
+        else:
+            con.execute(f"INSERT INTO candidates {body}")
+        log.info("blocking union bucket=%d/%d", b + 1, cfg.buckets)
 
 
 def run_blocking(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> dict:

@@ -38,6 +38,7 @@ def connect(cfg: Config, database: str | Path = ":memory:") -> duckdb.DuckDBPyCo
     con.execute(f"SET threads = {int(cfg.engine.duckdb_threads)}")
     con.execute(f"SET temp_directory = '{spill}'")
     con.execute("SET preserve_insertion_order = false")
+    con.execute(f"SET max_temp_directory_size = '{cfg.engine.get('max_temp_dir', '30GiB')}'")
     log.debug(
         kv(
             event="duckdb_connect",
