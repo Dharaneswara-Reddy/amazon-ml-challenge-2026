@@ -16,7 +16,7 @@ from typing import Any
 import duckdb
 
 from ber.duck import TableLike, as_view, drop_views
-from ber.io import count_data_rows, read_header, sql_str
+from ber.io import count_data_rows, read_header
 from ber.obs import kv
 
 log = logging.getLogger("ber.writer")
@@ -58,8 +58,7 @@ def check_inputs(con: duckdb.DuckDBPyConnection, s1: str, cand: str, match: str,
         checks += [
             (
                 f"{label} pair with S1 not in s1_ids",
-                f"SELECT DISTINCT coalesce(s1_id, '<NULL>') FROM {view} "
-                f"WHERE s1_id IS NULL OR s1_id NOT IN (SELECT s1_id FROM {s1})",
+                f"SELECT DISTINCT coalesce(v.s1_id, '<NULL>') FROM {view} v ANTI JOIN {s1} s USING (s1_id)",
             ),
             (
                 f"{label} right id not an S2-/S3- id",
@@ -75,8 +74,8 @@ def check_inputs(con: duckdb.DuckDBPyConnection, s1: str, cand: str, match: str,
             checks.append(
                 (
                     f"{label} right id not in valid_right_ids",
-                    f"SELECT DISTINCT match_id FROM {view} WHERE match_id IS NOT NULL "
-                    f"AND match_id NOT IN (SELECT entity_id FROM {valid})",
+                    f"SELECT DISTINCT v.match_id FROM {view} v ANTI JOIN {valid} x ON x.entity_id = v.match_id "
+                    f"WHERE v.match_id IS NOT NULL",
                 )
             )
     checks.append(
@@ -95,20 +94,32 @@ def check_inputs(con: duckdb.DuckDBPyConnection, s1: str, cand: str, match: str,
 
 
 def _write_list_file(con: duckdb.DuckDBPyConnection, s1: str, pairs: str, header: tuple[str, str], path: Path) -> None:
-    """COPY one id-list TSV atomically: one row per S1 id, sorted rows and sorted comma-joined ids."""
+    """Write one id-list TSV atomically: one row per S1 id, sorted rows and sorted comma-joined ids.
+
+    Pairs are streamed from DuckDB already sorted (sorting spills to disk) and grouped in Python, because an ordered
+    string_agg over tens of millions of ids keeps all aggregate state in memory.
+    """
     tmp = path.with_name(path.name + ".tmp")
     tmp.unlink(missing_ok=True)
-    con.execute(
-        f"""
-        COPY (
-            SELECT s.s1_id AS {header[0]},
-                   NULLIF(coalesce(string_agg(p.match_id, ',' ORDER BY p.match_id), ''), '') AS {header[1]}
+    reader = con.execute(
+        f"""SELECT s.s1_id, p.match_id
             FROM (SELECT DISTINCT s1_id FROM {s1}) s LEFT JOIN {pairs} p USING (s1_id)
-            GROUP BY s.s1_id
-            ORDER BY s.s1_id
-        ) TO {sql_str(tmp)} (FORMAT csv, DELIMITER '\t', HEADER true, QUOTE '', ESCAPE '', NEW_LINE '\n')
-        """
-    )
+            ORDER BY s.s1_id, p.match_id NULLS FIRST"""
+    ).to_arrow_reader(1_000_000)
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(f"{header[0]}\t{header[1]}\n")
+        cur: str | None = None
+        ids: list[str] = []
+        for batch in reader:
+            for a, b in zip(batch.column(0).to_pylist(), batch.column(1).to_pylist(), strict=True):
+                if a != cur:
+                    if cur is not None:
+                        fh.write(f"{cur}\t{','.join(ids)}\n")
+                    cur, ids = a, []
+                if b is not None:
+                    ids.append(b)
+        if cur is not None:
+            fh.write(f"{cur}\t{','.join(ids)}\n")
     os.replace(tmp, path)
 
 
