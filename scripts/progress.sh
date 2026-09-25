@@ -39,8 +39,29 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
     features_*)  grep -o "stage_start stage=features.*\|stage_end stage=features[^ ]* [^ ]* [^ ]* seconds=[^ ]*\|features written.*rows=[0-9]*" "$LOG" | tail -4 | cut -c1-110 | sed 's/^/  /'
                  l=$(grep -o "features bucket=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/.*bucket=//')
                  [ -n "$l" ] && echo "  buckets (current group) $(bar "${l%/*}" "${l#*/}")" ;;
-    train)       grep -oE "stage_(start|end) stage=[a-z_0-9]+.*seconds=[0-9.]+|stage_start stage=[a-z_0-9]+|\[[0-9]+\].*|trained lightgbm.*|oof fold=.*|stage2 features written.*rows=[0-9]+|train_done.*" "$LOG" | tail -10 | cut -c1-120 | sed 's/^/  /' ;;
-    predict)     grep -oE "stage_(start|end) stage=[a-z_0-9]+.*seconds=[0-9.]+|stage_start stage=[a-z_0-9]+|prior_shift.*|write_outputs.*|stage2 features written.*" "$LOG" | tail -8 | cut -c1-140 | sed 's/^/  /' ;;
+    train)       RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
+                 ms() { if [ -e "$RUN/$1" ]; then printf '    [x] %s\n' "$2"; elif [ "$3" = cur ]; then printf '    [>] %s\n' "$2"; else printf '    [ ] %s\n' "$2"; fi; }
+                 nxt() { for f in "$@"; do [ -e "$RUN/$f" ] || { echo "$f"; return; }; done; }
+                 n=$(nxt fit_in.parquet model1.txt pred1_fit_in.parquet pred1_fit.parquet pred1_holdout.parquet s2_holdout.parquet model2.txt pred2_holdout.parquet decision_params.json manifest.json)
+                 st() { [ "$n" = "$1" ] && echo cur; }
+                 parts=$(ls "$RUN"/protocol_out_*.parquet 2>/dev/null | wc -l); pin=$(ls "$RUN"/protocol_in_*.parquet 2>/dev/null | wc -l)
+                 echo "  run: $RUN"
+                 ms fit_in.parquet      "copy training rows" "$(st fit_in.parquet)"
+                 ms model1.txt          "stage-1 model (model 1/4)" "$(st model1.txt)"
+                 ms pred1_fit_in.parquet "fold A + fold B models (models 2-3/4) and their out-of-fold predictions" "$(st pred1_fit_in.parquet)"
+                 ms pred1_fit.parquet   "score all 23.9M train pairs with stage 1  ($( if [ "$pin" -gt 0 ]; then echo "part $((parts > 0 ? parts : 1))/3 running"; elif [ "$parts" -gt 0 ]; then echo "3/3 scored, merging"; fi ))" "$(st pred1_fit.parquet)"
+                 ms pred1_holdout.parquet "score tune + holdout with stage 1" "$(st pred1_holdout.parquet)"
+                 ms s2_holdout.parquet  "build stage-2 features (fit, tune, holdout)" "$(st s2_holdout.parquet)"
+                 ms model2.txt          "stage-2 model (model 4/4)" "$(st model2.txt)"
+                 ms pred2_holdout.parquet "score tune + holdout with stage 2" "$(st pred2_holdout.parquet)"
+                 ms decision_params.json "choose decision rule on tune, score holdout (local F0.5)" "$(st decision_params.json)"
+                 ms manifest.json       "save run manifest" "$(st manifest.json)"
+                 echo "  latest log lines:"
+                 grep -oE "\[[0-9]+\].*|trained lightgbm best_iteration=[0-9]+|oof fold=.*|stage2 features written.*rows=[0-9]+|train_done.*" "$LOG" | tail -3 | cut -c1-120 | sed 's/^/    /' ;;
+    predict)     RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
+                 for m in "pred1_test.parquet:score test with stage 1" "s2_test.parquet:build stage-2 test features" "pred2_test.parquet:score test with stage 2" "predict.json:prior shift + decision + write output TSVs"; do
+                   f=${m%%:*}; [ -e "$RUN/$f" ] && echo "    [x] ${m#*:}" || echo "    [ ] ${m#*:}"; done
+                 grep -oE "prior_shift.*|write_outputs.*" "$LOG" | tail -2 | cut -c1-140 | sed 's/^/    /' ;;
     *)           tail -3 "$LOG" | cut -c25-160 | sed 's/^/  /' ;;
   esac
 fi
@@ -77,7 +98,7 @@ if p:
     print(f"  predict: rule={p.get('rule')} test_prior_em={p.get('test_prior_em')} logit_delta={p.get('logit_delta')}")
     print(f"    matches/entity by country: {p.get('matches_per_entity_by_country')}")
 PYEOF
-grep -E "FROZEN|submissions/[0-9]|PASS|FAIL|GATE" "$OUT" 2>/dev/null | tail -3 | sed 's/^/  /'
+grep -E "FROZEN|submissions/[0-9]|PASS|FAIL" "$OUT" 2>/dev/null | tail -3 | sed 's/^/  /'
 
 echo; echo "Errors:"
 grep -hE "Traceback|Error|ERROR|Killed|status=error" "$OUT" "$LOG" 2>/dev/null | tail -3 | cut -c1-160 | sed 's/^/  /'
