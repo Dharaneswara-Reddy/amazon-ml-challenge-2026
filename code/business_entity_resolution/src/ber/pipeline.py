@@ -198,6 +198,18 @@ def train_stage(cfg: Config, name: str = "lgbm") -> Path:
     return run_dir
 
 
+def _output_views(con: duckdb.DuckDBPyConnection, cfg: Config) -> None:
+    """Views (streamed from parquet, never materialized) for the writer: test S1 ids, candidates, valid right ids."""
+    con.execute(
+        f"""CREATE OR REPLACE VIEW cands AS
+            SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')"""
+    )
+    s1_path = io.raw_parquet_path(cfg, "test", 1)
+    con.execute(f"CREATE OR REPLACE VIEW s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")
+    r2, r3 = io.raw_parquet_path(cfg, "test", 2), io.raw_parquet_path(cfg, "test", 3)
+    con.execute(f"CREATE OR REPLACE VIEW valid_right AS SELECT entity_id FROM read_parquet(['{r2}', '{r3}'])")
+
+
 def predict_stage(cfg: Config, run_dir: Path) -> dict[str, Any]:
     """Score test candidates with a trained run, apply its locked threshold, and write + verify both outputs."""
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -206,7 +218,7 @@ def predict_stage(cfg: Config, run_dir: Path) -> dict[str, Any]:
     preds = run_dir / "pred_test.parquet"
     with stage("predict", run_dir=run_dir):
         predict_file(booster, feat_path(cfg, "test"), preds, int(cfg.engine.batch_rows))
-    con = connect(cfg)
+    con = connect(cfg, run_dir / "work.duckdb")
     try:
         con.execute(
             f"""CREATE TEMP TABLE matches AS
@@ -214,14 +226,7 @@ def predict_stage(cfg: Config, run_dir: Path) -> dict[str, Any]:
                 WHERE p >= {threshold}
                 QUALIFY row_number() OVER (PARTITION BY rid ORDER BY p DESC, lid) = 1"""
         )
-        con.execute(
-            f"""CREATE TEMP TABLE cands AS
-                SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')"""
-        )
-        s1_path = io.raw_parquet_path(cfg, "test", 1)
-        con.execute(f"CREATE TEMP TABLE s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")
-        r2, r3 = io.raw_parquet_path(cfg, "test", 2), io.raw_parquet_path(cfg, "test", 3)
-        con.execute(f"CREATE TEMP TABLE valid_right AS SELECT entity_id FROM read_parquet(['{r2}', '{r3}'])")
+        _output_views(con, cfg)
         with stage("write_outputs") as st:
             result = write_outputs(con, "s1", "cands", "matches", "valid_right", Path(cfg.paths.output_dir))
             st.update({k: v for k, v in result.items() if not isinstance(v, dict)})
@@ -266,7 +271,7 @@ def rule_stage(cfg: Config) -> dict[str, Any]:
     applied to test candidates to write both submission files. No model is trained.
     """
     run_dir = new_run_dir(cfg, "rule")
-    con = connect(cfg)
+    con = connect(cfg, run_dir / "work.duckdb")
     metrics: dict[str, Any] = {}
     try:
         con.execute(
@@ -288,14 +293,7 @@ def rule_stage(cfg: Config) -> dict[str, Any]:
                 WHERE least(block_score / {RULE_SCALE}, 1.0) >= {threshold}
                 QUALIFY row_number() OVER (PARTITION BY rid ORDER BY block_score DESC, lid) = 1"""
         )
-        con.execute(
-            f"""CREATE TEMP TABLE cands AS
-                SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')"""
-        )
-        s1_path = io.raw_parquet_path(cfg, "test", 1)
-        con.execute(f"CREATE TEMP TABLE s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")
-        r2, r3 = io.raw_parquet_path(cfg, "test", 2), io.raw_parquet_path(cfg, "test", 3)
-        con.execute(f"CREATE TEMP TABLE valid_right AS SELECT entity_id FROM read_parquet(['{r2}', '{r3}'])")
+        _output_views(con, cfg)
         with stage("write_outputs") as st:
             result = write_outputs(con, "s1", "cands", "matches", "valid_right", Path(cfg.paths.output_dir))
             st.update({k: v for k, v in result.items() if not isinstance(v, dict)})
