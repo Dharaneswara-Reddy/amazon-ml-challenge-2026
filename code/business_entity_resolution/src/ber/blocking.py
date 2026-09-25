@@ -125,11 +125,11 @@ def token_pass(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig) -> None:
             FROM tokdf
             WHERE dl > 0 AND dr > 0 AND dl <= {cfg.token_df_cap} AND dr <= {cfg.token_df_cap_right}"""
     )
-    con.execute("CREATE OR REPLACE TABLE cand_tok (lid VARCHAR, rid VARCHAR, tok_score DOUBLE)")
+    con.execute("CREATE OR REPLACE TABLE cand_tok (lid VARCHAR, rid VARCHAR, tok_score DOUBLE, b INTEGER)")
     for b in range(cfg.buckets):
         con.execute(
             f"""INSERT INTO cand_tok
-                SELECT lid, rid, s FROM (
+                SELECT lid, rid, s, {b} FROM (
                   SELECT l.id AS lid, r.id AS rid, sum(k.idf) AS s
                   FROM (SELECT * FROM Rtok WHERE hash(id) % {cfg.buckets} = {b}) r
                   JOIN tokkeep k USING (c, t)
@@ -160,11 +160,12 @@ def sorted_neighbourhood_pass(con: duckdb.DuckDBPyConnection, name: str, cfg: Bl
     # filters afterwards, which is quadratic within a country.
     con.execute(
         f"""CREATE OR REPLACE TABLE cand_{name} AS
-            SELECT l.id AS lid, r.id AS rid, min(abs(r.off - 0.5)) AS sn_dist
+            SELECT l.id AS lid, r.id AS rid, min(abs(r.off - 0.5)) AS sn_dist, hash(r.id) % {cfg.buckets} AS b
             FROM (SELECT s.id, s.c, o.off, s.lcum + o.off AS target
                   FROM sn s CROSS JOIN range({-w + 1}, {w + 1}) o(off) WHERE s.side = 1) r
             JOIN (SELECT * FROM sn WHERE side = 0) l ON l.c = r.c AND l.lcum = r.target
-            GROUP BY ALL"""
+            GROUP BY lid, rid, b
+            ORDER BY b"""
     )
 
 
@@ -190,7 +191,7 @@ def union_and_rank(con: duckdb.DuckDBPyConnection, cfg: BlockingConfig, passes: 
     flags = ", ".join(f"bool_or(pass = '{p}') AS in_{p}" for p in passes)
     con.execute("DROP TABLE IF EXISTS candidates")
     for b in range(cfg.buckets):
-        where = f"hash(rid) % {cfg.buckets} = {b}"
+        where = f"b = {b}"  # pass tables are stored in bucket order, so zone maps skip other buckets
         selects = [
             f"SELECT lid, rid, '{p}' AS pass, {'tok_score' if p == 'tok' else 'NULL::DOUBLE'} AS tok_score "
             f"FROM cand_{p} WHERE {where}"
