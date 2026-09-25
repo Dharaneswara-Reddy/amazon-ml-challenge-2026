@@ -66,7 +66,15 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                    f=${ms[$i]%%:*}; label=${ms[$i]#*:}; nf=${ms[$((i + 1))]%%:*}
                    if [ -e "$RUN/$f" ] && { [ $i -eq 3 ] || [ -e "$RUN/$nf" ]; }; then echo "    [x] $label"
                    elif [ -e "$RUN/$f" ] || [ $i -eq 0 ]; then
-                     sz=$(du -h "$RUN/$f" 2>/dev/null | cut -f1); echo "    [>] $label   ${sz:+(output so far: $sz)}"
+                     pct=""
+                     if [ $i -eq 0 ]; then
+                       pp=$(pgrep -f "python .venv/bin/ber predict" | head -1)
+                       rb=$(awk '/^read_bytes/ {print $2}' /proc/$pp/io 2>/dev/null)
+                       tot=$(stat -c %s artifacts/cache/feat_v2_test.parquet 2>/dev/null)
+                       [ -n "$rb" ] && [ -n "$tot" ] && pct=$(( rb * 100 / tot )) && [ $pct -gt 100 ] && pct=100
+                     fi
+                     if [ -n "$pct" ]; then echo "    [>] $label   $(bar "$pct" 100 | sed 's| [0-9]*/100$||') ${pct}% of test features read"
+                     else echo "    [>] $label"; fi
                    else echo "    [ ] $label"; fi
                  done
                  grep -oE "prior_shift.*|write_outputs.*" "$LOG" | tail -2 | cut -c1-140 | sed 's/^/    /' ;;
