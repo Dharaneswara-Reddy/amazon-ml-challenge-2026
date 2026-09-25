@@ -187,6 +187,18 @@ def run_predict(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def run_rule(args: argparse.Namespace, cfg: Config) -> int:
+    """Rule baseline: tune a block_score threshold on train, write test submission files."""
+    from ber.pipeline import rule_stage
+
+    _emit(rule_stage(cfg), None)
+    return 0
+
+
+def add_nothing(p: argparse.ArgumentParser) -> None:
+    """No extra arguments."""
+
+
 COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("prepare", "convert organizer TSVs to the Parquet cache", add_prepare, run_prepare),
     ("normalize", "normalize names/addresses of a split", add_split, run_normalize),
@@ -194,6 +206,7 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("features", "compute pair features for a split", add_split, run_features),
     ("train", "train model, tune threshold, score holdout", add_train, run_train),
     ("predict", "predict test and write submission files", add_predict, run_predict),
+    ("rule", "rule baseline from blocking scores; writes submission files", add_nothing, run_rule),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
 ]

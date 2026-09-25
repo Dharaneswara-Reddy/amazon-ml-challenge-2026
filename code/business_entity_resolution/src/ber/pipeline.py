@@ -229,3 +229,79 @@ def predict_stage(cfg: Config, run_dir: Path) -> dict[str, Any]:
         con.close()
     (run_dir / "predict.json").write_text(json.dumps({"threshold": threshold, **result}, indent=2, default=str))
     return result
+
+
+RULE_SCALE = 3.3  # upper bound of block_score (jw + jw + jaccard + 0.3)
+
+
+def _rule_group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, group: str) -> dict[str, np.ndarray]:
+    """Arrays for the rule decision on one train group: each right record's best candidate over ALL candidates."""
+    s1 = str(io.raw_parquet_path(cfg, "train", 1))
+    con.execute(
+        f"""CREATE OR REPLACE TEMP TABLE s1g AS
+            SELECT s.entity_id AS s1_id, row_number() OVER (ORDER BY s.entity_id) - 1 AS idx,
+                   coalesce(g.n_matches, 0)::DOUBLE AS n_true
+            FROM read_parquet('{s1}') s
+            LEFT JOIN read_parquet('{io.gt_s1_path(cfg)}') g ON g.s1_id = s.entity_id
+            WHERE {group_where("s.entity_id", group)}"""
+    )
+    n_true = con.execute("SELECT n_true FROM s1g ORDER BY idx").fetchnumpy()["n_true"]
+    pairs = con.execute(
+        f"""SELECT s.idx, least(b.block_score / {RULE_SCALE}, 1.0) AS p, (g.s1_id IS NOT NULL) AS label
+            FROM best b JOIN s1g s ON s.s1_id = b.lid
+            LEFT JOIN read_parquet('{io.gt_pairs_path(cfg)}') g ON g.s1_id = b.lid AND g.match_id = b.rid"""
+    ).fetchnumpy()
+    return {
+        "lid_idx": pairs["idx"].astype(np.int64),
+        "p": pairs["p"].astype(np.float64),
+        "label": pairs["label"].astype(bool),
+        "n_true": n_true,
+    }
+
+
+def rule_stage(cfg: Config) -> dict[str, Any]:
+    """Rule baseline: each right record goes to its top block_score candidate if block_score clears a threshold.
+
+    The threshold maximizes macro F0.5 on the train tune group, is reported on the holdout group, and is then
+    applied to test candidates to write both submission files. No model is trained.
+    """
+    run_dir = new_run_dir(cfg, "rule")
+    con = connect(cfg)
+    metrics: dict[str, Any] = {}
+    try:
+        con.execute(
+            f"""CREATE TEMP TABLE best AS SELECT lid, rid, block_score FROM read_parquet('{cand_path(cfg, "train")}')
+                QUALIFY row_number() OVER (PARTITION BY rid ORDER BY block_score DESC, lid) = 1"""
+        )
+        grid = np.round(np.arange(0.30, 1.0, 0.005), 3)
+        tune = _rule_group_arrays(con, cfg, "tune")
+        curve = [(float(t), macro_f05(tune["lid_idx"], tune["p"] >= t, tune["label"], tune["n_true"])) for t in grid]
+        threshold, metrics["tune_f05"] = max(curve, key=lambda x: (x[1], -x[0]))
+        metrics["threshold"] = threshold
+        hold = _rule_group_arrays(con, cfg, "holdout")
+        metrics["holdout_f05"] = macro_f05(hold["lid_idx"], hold["p"] >= threshold, hold["label"], hold["n_true"])
+        metrics["holdout_candidate_recall"] = float(hold["label"].sum() / max(hold["n_true"].sum(), 1))
+        (run_dir / "threshold_curve.json").write_text(json.dumps(curve))
+        con.execute(
+            f"""CREATE TEMP TABLE matches AS
+                SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')
+                WHERE least(block_score / {RULE_SCALE}, 1.0) >= {threshold}
+                QUALIFY row_number() OVER (PARTITION BY rid ORDER BY block_score DESC, lid) = 1"""
+        )
+        con.execute(
+            f"""CREATE TEMP TABLE cands AS
+                SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')"""
+        )
+        s1_path = io.raw_parquet_path(cfg, "test", 1)
+        con.execute(f"CREATE TEMP TABLE s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")
+        r2, r3 = io.raw_parquet_path(cfg, "test", 2), io.raw_parquet_path(cfg, "test", 3)
+        con.execute(f"CREATE TEMP TABLE valid_right AS SELECT entity_id FROM read_parquet(['{r2}', '{r3}'])")
+        with stage("write_outputs") as st:
+            result = write_outputs(con, "s1", "cands", "matches", "valid_right", Path(cfg.paths.output_dir))
+            st.update({k: v for k, v in result.items() if not isinstance(v, dict)})
+    finally:
+        con.close()
+    write_manifest(run_dir, cfg, method="rule", metrics=metrics)
+    (run_dir / "predict.json").write_text(json.dumps({"threshold": metrics["threshold"], **result}, default=str))
+    log.info(kv(event="rule_done", run_dir=run_dir, **metrics))
+    return {"run_dir": str(run_dir), **metrics}

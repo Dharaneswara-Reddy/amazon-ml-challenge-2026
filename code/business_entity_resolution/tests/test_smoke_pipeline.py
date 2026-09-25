@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ber import io
 from ber.config import PACKAGE_DIR, load_config
-from ber.pipeline import block_stage, features_stage, normalize_stage, predict_stage, train_stage
+from ber.pipeline import block_stage, features_stage, normalize_stage, predict_stage, rule_stage, train_stage
 
 WORDS = [
     "ram",
@@ -112,6 +112,8 @@ def test_pipeline_end_to_end_passes_official_validator(tmp_path: Path) -> None:
         normalize_stage(cfg, split)
         stats = block_stage(cfg, split)
         features_stage(cfg, split)
+    rule = rule_stage(cfg)
+    assert 0.0 <= rule["holdout_f05"] <= 1.0
     run_dir = train_stage(cfg, "smoke")
     result = predict_stage(cfg, run_dir)
 
