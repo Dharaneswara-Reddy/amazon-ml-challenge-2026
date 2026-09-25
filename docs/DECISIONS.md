@@ -182,3 +182,19 @@ new record that supersedes the old one; never edit history. Status: **active** Â
   - `docs/EXPERIMENTS.md` gets one row per run, with the delta vs the best
   - stages log *why* they filtered (chosen K and its recall, chosen threshold and its tune score, EM prior)
 - **Why:** you asked for every decision to be traceable; it also stops us from repeating failed ideas.
+
+---
+
+### Implementation status â€” 25 Sep 2026, commit 3c7f168+
+- **Implemented:** D-006 (q3 + name-only passes, linear ranker, K from recall curve), D-008 (stage 2 wired into
+  `ber train`), D-009 (rule chosen on tune halves via `decision.choose_decision`), D-010 (EM prior shift in
+  `ber predict`), D-011 (address components, learned admin vocabulary), D-012 (`ber learn-maps`), D-013
+  (`ber.textdiff` + `ber learn-logodds`), D-019 (bucketed features), D-020 (manifest decision IDs + EXPERIMENTS.md).
+- **Verified:** 168 tests, incl. an end-to-end smoke run of the whole v2 chain on synthetic data through the organizer
+  validator (`--check-ids`).
+- **Not yet run on real data.** The runbook is `scripts/run_v2.sh prep | train | predict`, and training waits for
+  the user's approval.
+- **Found and fixed while integrating:**
+  - `compare_decisions` picked the rule by holdout score. Replaced with tune-half selection (D-004).
+  - v1 never fed `skel_ratio`/`skel_jw` to the model; they were missing from the feature list.
+  - Concatenated fold files duplicated rival pairs; they are now deduplicated with the in-group row preferred.
