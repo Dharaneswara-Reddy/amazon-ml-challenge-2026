@@ -3,6 +3,7 @@
 #   scripts/run_v2.sh prep      learn maps → normalize v2 → ranker sample → ranker → block train/test → log-odds → features
 #   scripts/run_v2.sh train     stage 1 + OOF + stage 2 + decision choice on tune; scores holdout (prints run dir)
 #   scripts/run_v2.sh predict <run_dir>   test prediction with prior shift → official validator → freeze submission
+#   scripts/run_v2.sh all       prep → train → predict in one unattended chain (live view: scripts/progress.sh)
 # Heavy steps take the shared lock so only one runs at a time; every step logs to artifacts/logs/v2_<step>.log.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -13,7 +14,7 @@ mkdir -p "$L"
 step() { echo "=== $(date +%T) $*"; }
 run() { local name=$1; shift; step "$name"; flock artifacts/heavy.lock "$B" "$@" --log-file "$L/v2_$name.log" > "$L/v2_$name.json"; }
 
-case "${1:?usage: run_v2.sh prep|train|predict <run_dir>}" in
+case "${1:?usage: run_v2.sh prep|train|predict <run_dir>|all}" in
   prep)
     run learn_maps learn-maps
     run normalize_train normalize --split train --force
@@ -38,6 +39,12 @@ case "${1:?usage: run_v2.sh prep|train|predict <run_dir>}" in
     RUN=${2:?usage: run_v2.sh predict <run_dir>}
     run predict predict --run "$RUN"
     scripts/freeze_submission.sh "$RUN" "v2: blocking v2 + features v2 + stage 2 + tune-chosen decision + prior shift"
+    ;;
+  all)
+    "$0" prep
+    "$0" train
+    "$0" predict "$($PY -c "import json;print(json.load(open('$L/v2_train.json'))['run_dir'])")"
+    step "all done"
     ;;
   *) echo "unknown phase $1" >&2; exit 2 ;;
 esac

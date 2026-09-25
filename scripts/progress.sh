@@ -1,19 +1,88 @@
 #!/usr/bin/env bash
-# Live pipeline view: run `watch -n 5 scripts/progress.sh` from the repo root.
+# Live view of the v2 pipeline (scripts/run_v2.sh). From the repo root:  watch -n 5 scripts/progress.sh
 cd "$(git rev-parse --show-toplevel)"
 L=artifacts/logs
-CHAIN=$(ls -t $L/chain*.out 2>/dev/null | head -1)
-echo "PIPELINE PROGRESS   $(date +%H:%M:%S)   (log: ${CHAIN:-none})"
-echo "---------------------------------------------------------------"
-[ -n "$CHAIN" ] && grep -E "^===|recall_final=|rule_metrics|FROZEN|run_dir=|^metrics|GATE|exit=" "$CHAIN"
-echo; echo "Blocking (latest):"
-grep -ho "blocking step=.*\|blocking union bucket=.*" $L/block_train.log $L/block_test.log 2>/dev/null | tail -4 | sed 's/^/  /'
-echo; echo "Features (latest):"
-grep -ho "stage=features.*status=[a-z]*\|features written.*" $L/features_*.log 2>/dev/null | tail -3 | cut -c1-140 | sed 's/^/  /'
-echo; echo "Training (latest):"
-grep -hE "\[[0-9]+\].*valid|Early stopping|Did not meet|train_done" $L/train.log 2>/dev/null | tail -4 | cut -c1-160 | sed 's/^/  /'
+OUT=$L/v2_all.out
+PY=.venv/bin/python
+STEPS=(learn_maps normalize_train normalize_test block_sample train_ranker block_train block_test learn_logodds
+       features_train features_test train predict)
+now=$(date +%s)
+alive=$(pgrep -f "run_v2.sh" >/dev/null && echo RUNNING || echo "NOT RUNNING")
+bar() { local d=$1 t=$2 w=30 f s; f=$(( t > 0 ? d * w / t : 0 )); printf -v s '%*s' "$f" ''; printf '[%s%*s] %s/%s' "${s// /#}" $((w - f)) '' "$d" "$t"; }
+hms() { printf '%dh%02dm' $(($1 / 3600)) $(($1 % 3600 / 60)); }
+start_of() { grep -m1 -E "^=== [0-9:]+ $1\$" "$OUT" 2>/dev/null | awk '{print $2}'; }
+secs() { date -d "$1" +%s 2>/dev/null; }
+
+echo "PIPELINE V2   $(date +%H:%M:%S)   chain: $alive   (full log: $OUT)"
+echo "────────────────────────────────────────────────────────────────────────────"
+cur=""
+for s in "${STEPS[@]}"; do
+  t=$(start_of "$s")
+  if [ -z "$t" ]; then printf '  [ ]  %-16s\n' "$s"; continue; fi
+  cur=$s
+  if [ -s "$L/v2_$s.json" ]; then printf '  [x]  %-16s started %s  done\n' "$s" "$t"
+  elif [ "$alive" = RUNNING ]; then printf '  [>]  %-16s started %s, %s elapsed\n' "$s" "$t" "$(hms $(( now - $(secs "$t") )))"
+  else printf '  [!]  %-16s started %s, FAILED or stopped (see errors)\n' "$s" "$t"
+  fi
+done
+
+LOG=$L/v2_$cur.log
+if [ -n "$cur" ] && [ -f "$LOG" ]; then
+  echo; echo "Current step: $cur"
+  case $cur in
+    normalize_*) l=$(grep -o "normalize rows=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/normalize rows=//')
+                 [ -n "$l" ] && echo "  rows  $(bar "${l%/*}" "${l#*/}")"
+                 grep -o "stage_start stage=normalize.*source=[0-9]" "$LOG" | tail -1 | sed 's/^/  /' ;;
+    block_*)     grep -o "blocking step=.*" "$LOG" | tail -12 | sed 's/^/  pass done: /'
+                 l=$(grep -o "blocking union bucket=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/.*bucket=//')
+                 [ -n "$l" ] && echo "  union+rank buckets $(bar "${l%/*}" "${l#*/}")" ;;
+    features_*)  grep -o "stage_start stage=features.*\|stage_end stage=features[^ ]* [^ ]* [^ ]* seconds=[^ ]*\|features written.*rows=[0-9]*" "$LOG" | tail -4 | cut -c1-110 | sed 's/^/  /'
+                 l=$(grep -o "features bucket=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/.*bucket=//')
+                 [ -n "$l" ] && echo "  buckets (current group) $(bar "${l%/*}" "${l#*/}")" ;;
+    train)       grep -oE "stage_(start|end) stage=[a-z_0-9]+.*seconds=[0-9.]+|stage_start stage=[a-z_0-9]+|\[[0-9]+\].*|trained lightgbm.*|oof fold=.*|stage2 features written.*rows=[0-9]+|train_done.*" "$LOG" | tail -10 | cut -c1-120 | sed 's/^/  /' ;;
+    predict)     grep -oE "stage_(start|end) stage=[a-z_0-9]+.*seconds=[0-9.]+|stage_start stage=[a-z_0-9]+|prior_shift.*|write_outputs.*|stage2 features written.*" "$LOG" | tail -8 | cut -c1-140 | sed 's/^/  /' ;;
+    *)           tail -3 "$LOG" | cut -c25-160 | sed 's/^/  /' ;;
+  esac
+fi
+
+echo; echo "Results so far:"
+$PY - <<'PYEOF' 2>/dev/null
+import json, pathlib
+L = pathlib.Path("artifacts/logs")
+def j(name):
+    p = L / f"v2_{name}.json"
+    try:
+        return json.loads(p.read_text()) if p.stat().st_size else None
+    except Exception:
+        return None
+for split in ("sample", "train", "test"):
+    b = j(f"block_{split}")
+    if b:
+        r = b.get("recall", {})
+        extra = f"  recall={r['recall_final']:.4f}" if "recall_final" in r else ""
+        m = b.get("cand_per_left_mean_p50_p99_max", [0])
+        print(f"  block {split:6s} pairs={b.get('final_pairs', 0):,}  cand/S1={m[0]:.1f}{extra}")
+rk = pathlib.Path("artifacts/cache/learned/ranker.json")
+if rk.exists():
+    d = json.loads(rk.read_text()); print(f"  ranker K={d.get('k')}  weights={ {k: round(v, 2) for k, v in d.get('weights', {}).items()} }")
+t = j("train")
+if t:
+    mf = pathlib.Path(t["run_dir"]) / "manifest.json"
+    m = json.loads(mf.read_text()).get("metrics", {}) if mf.exists() else {}
+    print(f"  run {t['run_dir']}")
+    for k in ("rule", "holdout_f05", "stage1_holdout", "stage2_holdout", "holdout_candidate_recall", "best_iteration_stage1", "best_iteration_stage2"):
+        if k in m: print(f"    {k}: {m[k]}")
+p = j("predict")
+if p:
+    print(f"  predict: rule={p.get('rule')} test_prior_em={p.get('test_prior_em')} logit_delta={p.get('logit_delta')}")
+    print(f"    matches/entity by country: {p.get('matches_per_entity_by_country')}")
+PYEOF
+grep -E "FROZEN|submissions/[0-9]|PASS|FAIL|GATE" "$OUT" 2>/dev/null | tail -3 | sed 's/^/  /'
+
 echo; echo "Errors:"
-grep -hE "ERROR|Traceback|Error" "${CHAIN%.out}.err" 2>/dev/null | tail -2 | cut -c1-160 | sed 's/^/  /'
+grep -hE "Traceback|Error|ERROR|Killed|status=error" "$OUT" "$LOG" 2>/dev/null | tail -3 | cut -c1-160 | sed 's/^/  /'
+
 echo; echo "Machine:"
-ps -eo pcpu,rss,etime,args --sort=-pcpu | grep "bin/ber " | grep -v grep | awk '{printf "  ber: %s%% CPU, %.1f GB RAM, running %s\n",$1,$2/1048576,$3}'
-free -h | awk 'NR==2{print "  RAM used " $3 " / " $2 ", available " $7}'
+ps -eo pcpu=,rss=,args= | awk '/bin\/ber |multiprocessing/ && !/awk/ {c+=$1; r+=$2; n++} END {printf "  pipeline processes: %d, CPU %.0f%% (1200%% = all 12 threads), RAM %.1f GB\n", n, c, r/1048576}'
+free -h | awk 'NR==2{print "  RAM used " $3 " / " $2 ", available " $7} NR==3{print "  swap used " $3 " / " $2}'
+echo "  spill dir: $(du -sh artifacts/tmp 2>/dev/null | cut -f1)   disk free: $(df -h . | awk 'NR==2{print $4}')"

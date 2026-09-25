@@ -37,13 +37,28 @@ DEFAULT_PARAMS: dict = {
 def load_matrix(
     path: Path, with_label: bool = True, features: list[str] | None = None
 ) -> tuple[np.ndarray, np.ndarray | None, pa.Table]:
-    """Read a feature parquet into a float32 matrix (``features`` order, default FEATURES), labels, and id columns."""
+    """Read a feature parquet into a float32 matrix (``features`` order, default FEATURES), labels, and id columns.
+
+    The matrix is preallocated and filled batch by batch, so peak memory is about one copy of the matrix
+    (tens of millions of rows on a 16 GB laptop), not the Arrow table plus per-column arrays plus a stacked copy.
+    """
     features = FEATURES if features is None else features
+    pf = pq.ParquetFile(path)
+    n = pf.metadata.num_rows
+    x = np.empty((n, len(features)), dtype=np.float32)
+    y = np.empty(n, dtype=np.int8) if with_label else None
     cols = ["lid", "rid", *features] + (["label"] if with_label else [])
-    tbl = pq.read_table(path, columns=cols)
-    x = np.column_stack([tbl.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in features])
-    y = tbl.column("label").to_numpy().astype(np.int8) if with_label else None
-    return x, y, tbl.select(["lid", "rid"])
+    ids = [pf.schema_arrow.empty_table().select(["lid", "rid"])]
+    i = 0
+    for batch in pf.iter_batches(batch_size=1_000_000, columns=cols):
+        m = batch.num_rows
+        for j, f in enumerate(features):
+            x[i : i + m, j] = batch.column(f).to_numpy(zero_copy_only=False)
+        if y is not None:
+            y[i : i + m] = batch.column("label").to_numpy(zero_copy_only=False)
+        ids.append(pa.Table.from_arrays([batch.column("lid"), batch.column("rid")], names=["lid", "rid"]))
+        i += m
+    return x, y, pa.concat_tables(ids)
 
 
 def train(

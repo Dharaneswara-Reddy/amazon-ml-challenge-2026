@@ -14,6 +14,7 @@ Design goals:
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing as mp
 import re
 import unicodedata
@@ -25,6 +26,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from anyascii import anyascii
 from rapidfuzz.distance import JaroWinkler
+
+log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------------------------------
 # Transliteration
@@ -1057,14 +1060,21 @@ def normalize_parquet(
     """
     token_map = _load_token_map(token_map_path)
     admin_vocab = _load_admin_vocab(admin_vocab_path)
+    total = pq.ParquetFile(in_path).metadata.num_rows
     writer = pq.ParquetWriter(out_path, OUTPUT_SCHEMA, compression="zstd")
     n = 0
+
+    def emit(out: pa.Table) -> None:
+        """Write one normalized batch and log progress."""
+        nonlocal n
+        writer.write_table(out)
+        n += out.num_rows
+        log.info("normalize rows=%d/%d (%.0f%%)", n, total, 100.0 * n / max(total, 1))
+
     try:
         if workers <= 1:
             for b in _iter_batches(in_path, batch_rows):
-                out = normalize_batch(b, token_map, admin_vocab)
-                writer.write_table(out)
-                n += out.num_rows
+                emit(normalize_batch(b, token_map, admin_vocab))
         else:
             ctx = mp.get_context("spawn")
             with ctx.Pool(workers) as pool:
@@ -1072,13 +1082,9 @@ def normalize_parquet(
                 for b in _iter_batches(in_path, batch_rows):
                     window.append(pool.apply_async(normalize_batch, (b, token_map, admin_vocab)))
                     if len(window) >= 2 * workers:
-                        out = window.popleft().get()
-                        writer.write_table(out)
-                        n += out.num_rows
+                        emit(window.popleft().get())
                 while window:
-                    out = window.popleft().get()
-                    writer.write_table(out)
-                    n += out.num_rows
+                    emit(window.popleft().get())
     finally:
         writer.close()
     return n
