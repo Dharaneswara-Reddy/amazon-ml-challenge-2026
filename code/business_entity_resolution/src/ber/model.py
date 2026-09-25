@@ -34,21 +34,36 @@ DEFAULT_PARAMS: dict = {
 }
 
 
-def load_matrix(path: Path, with_label: bool = True) -> tuple[np.ndarray, np.ndarray | None, pa.Table]:
-    """Read a feature parquet into a float32 matrix (FEATURES order), optional labels, and the id columns."""
-    cols = ["lid", "rid", *FEATURES] + (["label"] if with_label else [])
+def load_matrix(
+    path: Path, with_label: bool = True, features: list[str] | None = None
+) -> tuple[np.ndarray, np.ndarray | None, pa.Table]:
+    """Read a feature parquet into a float32 matrix (``features`` order, default FEATURES), labels, and id columns."""
+    features = FEATURES if features is None else features
+    cols = ["lid", "rid", *features] + (["label"] if with_label else [])
     tbl = pq.read_table(path, columns=cols)
-    x = np.column_stack([tbl.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in FEATURES])
+    x = np.column_stack([tbl.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in features])
     y = tbl.column("label").to_numpy().astype(np.int8) if with_label else None
     return x, y, tbl.select(["lid", "rid"])
 
 
-def train(fit_path: Path, valid_path: Path, params: dict, seed: int, threads: int, rounds: int = 2000) -> lgb.Booster:
-    """Train a binary LightGBM on fit_path with early stopping on valid_path; return the booster at best iteration."""
-    x_fit, y_fit, _ = load_matrix(fit_path)
-    x_val, y_val, _ = load_matrix(valid_path)
+def train(
+    fit_path: Path,
+    valid_path: Path,
+    params: dict,
+    seed: int,
+    threads: int,
+    rounds: int = 2000,
+    features: list[str] | None = None,
+) -> lgb.Booster:
+    """Train a binary LightGBM on fit_path with early stopping on valid_path; return the booster at best iteration.
+
+    features: column names to train on (default FEATURES; stage 2 passes ber.stage2.MODEL2_FEATURES).
+    """
+    features = FEATURES if features is None else features
+    x_fit, y_fit, _ = load_matrix(fit_path, features=features)
+    x_val, y_val, _ = load_matrix(valid_path, features=features)
     full = {**DEFAULT_PARAMS, **params, "seed": seed, "num_threads": threads}
-    d_fit = lgb.Dataset(x_fit, y_fit, feature_name=FEATURES, free_raw_data=True)
+    d_fit = lgb.Dataset(x_fit, y_fit, feature_name=list(features), free_raw_data=True)
     d_val = lgb.Dataset(x_val, y_val, reference=d_fit, free_raw_data=True)
     del x_fit, x_val
     booster = lgb.train(
@@ -63,16 +78,22 @@ def train(fit_path: Path, valid_path: Path, params: dict, seed: int, threads: in
     return booster
 
 
-def predict_file(booster: lgb.Booster, feat_path: Path, out_path: Path, batch_rows: int) -> int:
-    """Score every row of a feature parquet in batches and write (lid, rid, p[, label]) parquet; return rows."""
+def predict_file(
+    booster: lgb.Booster, feat_path: Path, out_path: Path, batch_rows: int, features: list[str] | None = None
+) -> int:
+    """Score every row of a feature parquet in batches and write (lid, rid, p[, label]) parquet; return rows.
+
+    features: model input columns in training order (default FEATURES).
+    """
+    features = FEATURES if features is None else features
     pf = pq.ParquetFile(feat_path)
     has_label = "label" in pf.schema_arrow.names
-    cols = ["lid", "rid", *FEATURES] + (["label"] if has_label else [])
+    cols = ["lid", "rid", *features] + (["label"] if has_label else [])
     writer = None
     n = 0
     try:
         for batch in pf.iter_batches(batch_size=batch_rows, columns=cols):
-            x = np.column_stack([batch.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in FEATURES])
+            x = np.column_stack([batch.column(f).to_numpy(zero_copy_only=False).astype(np.float32) for f in features])
             p = booster.predict(x, num_iteration=booster.best_iteration or None).astype(np.float32)
             arrays = [batch.column("lid"), batch.column("rid"), pa.array(p)]
             names = ["lid", "rid", "p"]
