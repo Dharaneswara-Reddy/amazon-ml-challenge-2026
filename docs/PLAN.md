@@ -1,5 +1,7 @@
 # Amazon ML Challenge 2026 — Project Plan
 
+> **Superseded by [DESIGN_V2.md](DESIGN_V2.md)** (25 Sep 15:30) — v1 kept for history. Decisions: [DECISIONS.md](DECISIONS.md).
+
 Deadline: **27 Sep 2026, 23:59 IST**. Leaderboard uploads: max 5 per day, each = `matching_results.tsv` + code zip.
 Status legend: ✅ done · ⏳ in progress · ⬜ not started.
 

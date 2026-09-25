@@ -1,0 +1,184 @@
+# Decision log
+
+Append-only. Each record says what was decided, why, what was rejected, and the evidence. To change a decision, add a
+new record that supersedes the old one; never edit history. Status: **active** · **proposed** (v2, awaiting approval) ·
+**superseded**. Referenced from [`DESIGN_V2.md`](DESIGN_V2.md) and recorded in each run's `manifest.json`.
+
+---
+
+### D-001 · DuckDB + Parquet cache as the data engine — active
+- **Decision:** convert TSVs once to zstd Parquet; do joins, windows, and aggregates in DuckDB with a memory limit and
+  disk spill; do Python-side work (normalization, rapidfuzz) on streamed Arrow batches.
+- **Why:** 24 M records / 2.4 GB of text on a 15 GB laptop with 3–9 GB free.
+- **Rejected:**
+  - pandas: loads everything into RAM
+  - polars: in-memory by default
+  - Spark: setup cost, overkill for one machine
+- **Evidence:** `prepare` 60 s at 664 MB peak; normalization 11 min at under 1 GB.
+
+### D-002 · Country is a hard partition for candidate generation — active
+- **Decision:** candidates are only ever generated within the same country label.
+- **Why:** it cuts the search space about 2× and removes cross-country false positives at no recall cost.
+- **Rejected:** country as a soft feature only.
+- **Evidence:** 100% of 200 k sampled true pairs share the country.
+- **Risk noted:** a mislabelled country would be unrecoverable. None observed.
+
+### D-003 · Each noisy record is assigned to at most one Source-1 entity (best candidate) — active
+- **Decision:** after scoring, a Source-2/3 record keeps only its highest-probability entity. An entity may keep many
+  records.
+- **Why:** it's an exact property of the data, and removes rival-entity false positives.
+- **Rejected:**
+  - no constraint: more false positives
+  - Hungarian / global bipartite matching: entities are one-to-many, and research shows global weight maximisation can
+    add false positives in ER
+- **Evidence:** 0 of 7.64 M matched records appear under two entities.
+
+### D-004 · Grouped validation by Source-1 entity via md5 buckets; learned statistics only from the fit group — active (layout revised in v2)
+- **Decision:** assign entities to groups by md5(entity_id) mod 100. Fit, tune (threshold / early stopping), and
+  holdout (final score) are disjoint. Any statistic learned from labels (token log-odds, abbreviation maps, calibration)
+  comes only from fit (out-of-fold within fit) or tune.
+- **Why:** pairs of one entity share strings and group features, so a pair-level split leaks. md5 is deterministic and
+  order-independent.
+- **Rejected:**
+  - random pair split: leaks
+  - 5-fold CV of everything: 5× compute for about ±0.0006 of extra precision
+- **v2 layout:** fitA 0–14, fitB 15–29, tune 30–34, holdout 35–39. v1 layout was fit 0–9, tune 10–14, holdout 15–19.
+
+### D-005 · Blocking keys combine name and address — active
+- **Decision:** sorted-neighbourhood keys like `name|sorted-address-words`, `address|name`, `skeleton|house-numbers`;
+  the token pass uses name and address tokens.
+- **Why:** half of Source-1 names are shared by other entities, so name-only keys drown the true match among namesakes.
+- **Rejected:** name-only keys (v1 blocking).
+- **Evidence:**
+  - name-only passes: 41–58% recall
+  - composite 6-key union: 92.8% (2% sample)
+  - full train after ranking: 94.0%, vs 46% for v1 blocking
+
+### D-006 · Block v2: add char-3-gram TF-IDF and name-only passes; replace hand-weighted ranking with a learned ranker; choose K from the recall curve — proposed
+- **Decision:**
+  - add a chunked sparse top-k TF-IDF pass over name_core + street + city, and a name-only pass for records with
+    empty or one-component addresses
+  - rank the union with a small LightGBM trained on fit-group candidates
+  - K = the smallest cap within 0.2 points of the recall plateau on tune
+- **Why:** blocking caps the score (oracle on today's candidates is 0.977). Misses concentrate in transliterated names
+  with truncated or empty addresses. The hand-weighted score loses about 0.4 points of reachable recall.
+- **Rejected:**
+  - raising K alone: the research shows recall gaps are key-coverage problems
+  - dense embedding ANN: pretrained-model status is unconfirmed and CPU cost is higher
+- **Evidence:** Sparkly (VLDB 2023) TF-IDF top-10 recall 86–99.96%; meta-blocking literature (Papadakis/JedAI);
+  forensics miss examples.
+
+### D-007 · Pairwise matcher = LightGBM — active
+- **Decision:** gradient-boosted trees (LightGBM, MIT) on engineered pair features.
+- **Why:**
+  - it already reaches 0.9555 holdout
+  - CPU-fast
+  - license-safe
+  - interpretable importances for error analysis
+- **Rejected (for now):** transformer cross-encoders and LLMs (see D-014).
+- **Evidence:** Kaggle Foursquare 2022 7th place 0.9935 IoU with LightGBM only; our v1 run.
+
+### D-008 · Two-stage stacking with competition and cross-source features — proposed
+- **Decision:** stage-2 LightGBM on stage-1 probability plus context features:
+  - rank and margin within the noisy record's and the entity's candidates
+  - the entity's confident-candidate counts per source
+  - agreement between an entity's Source-2 and Source-3 candidates
+
+  Trained on out-of-fold stage-1 predictions.
+- **Why:** many errors are relative ("lost to a rival", "near-duplicate beside the true match") and single-pair
+  features can't see them.
+- **Rejected:** hand-written post-processing rules (brittle, untunable).
+- **Evidence:** Foursquare winners' rank / margin features; stage-2 branch simulations +0.4–1.6 points.
+
+### D-009 · Decision rule chosen on tune: global threshold vs per-entity expected-F0.5 — proposed
+- **Decision:** implement both, pick the one with the higher tune F0.5, report it on the holdout. Expected-F uses
+  isotonic-calibrated probabilities and scores the empty set with P(no true match).
+- **Why:** macro F0.5 per entity rewards predicting nothing for doubtful singletons and trading a borderline 4th match
+  against the confidence of the first three.
+- **Rejected:** fixed 0.5 threshold; per-country thresholds (France has no labels).
+- **Evidence:** Jansche 2007 and Dembczyński GFM (exact expected-F set selection); stage-2 branch simulation.
+
+### D-010 · Prior-shift correction for test — proposed
+- **Decision:** estimate the test positive rate among candidates with Saerens EM on test predictions, rescale the
+  probabilities before the decision rule, and log the estimate.
+- **Why:** test has 5.8 noisy records per entity vs 4.68 in train, in every country. If the matches per entity are
+  unchanged, a larger share of candidates are distractors and the model is over-confident on test.
+- **Rejected:** assuming no shift (the rule dropped 0.807 → 0.749 public).
+- **Evidence:** forensics composition; Saerens et al. 2002; BBSE 2018.
+
+### D-011 · Address admin units (state / région / département) split out and down-weighted; no French admin map — proposed
+- **Decision:** parse the admin component separately. Similarity features focus on house number + street + city; admin
+  equality is its own low-weight feature. No hand-written département↔région table.
+- **Why:** French records use a région on one side and a département or nothing on the other. France is 15% of test and
+  was under-matched (20.6% empty). French postal standards don't use the région at all.
+- **Rejected:** hand-mapping 13 régions / 96 départements (gray zone under the no-external-data rule, and unnecessary).
+- **Evidence:** forensics samples; research note on French address standards.
+
+### D-012 · Indic legal-form abbreviations learned from train pairs — proposed
+- **Decision:** build the transliterated-token → canonical-token map (e.g. "pra li" → "private limited") by aligning
+  tokens of true pairs in the fit group; keep only high-support, high-precision mappings.
+- **Why:** "प्रा. लि." and similar forms survive transliteration as unmatched tokens, and those names dominate blocking
+  misses.
+- **Rejected:**
+  - hand-writing forms for 9 scripts (slow, incomplete)
+  - an external transliteration dictionary (not allowed)
+- **Evidence:** forensics blocking-miss examples; rules allow maps derived from provided data.
+
+### D-013 · Distractor-aware features: token alignment classes and learned token log-odds — proposed
+- **Decision:**
+  - classify each name token difference as exact / typo / abbreviation / transliteration / legal form / unexplained
+  - add the IDF mass and learned log-odds (out-of-fold, fit group) of unexplained tokens
+  - add house-number relation classes and relative numeric distance
+- **Why:** 26.5 k of the rule's 29.5 k false positives are near-duplicate distractors that differ by one swapped or added
+  word or a nudged number, and generic similarities can't tell that from typo noise.
+- **Rejected:** only more generic similarity scores.
+- **Evidence:** importance-weighted Jaccard +5 F1; learned token weighting (HierGAT) up to +8.7 F1 over Ditto; Magellan
+  vs Ditto on dirty data 37 vs 86 F1.
+
+### D-014 · Transformer / LLM reranker deferred — active
+- **Decision:** don't build a cross-encoder or LLM stage now. Revisit only if stage-1 + stage-2 plateau below 0.975
+  holdout **and** a local pilot scores 50 k pairs fast enough to cover the uncertain band (1–3 M pairs) in under 2 h.
+- **Why:**
+  - CPU throughput for cross-encoders is unproven (no primary benchmark found)
+  - the organizers haven't confirmed that pretrained models are allowed
+  - GBDT-only reached 0.9935 in the closest competition
+- **If revived:** multilingual-e5-small (MIT) or paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0), both ≤ 118 M params.
+
+### D-015 · No external data, gazetteers, geocoders, or libpostal — active
+- **Decision:** everything learned comes only from the provided TSVs. Hand-written rules only for generic
+  abbreviations and legal forms.
+- **Why:** disqualification rule. libpostal is trained on OpenStreetMap, which counts as external data.
+
+### D-016 · Transliteration with anyascii (+ anusvara fix) and a consonant skeleton — active
+- **Decision:** anyascii for all non-Latin scripts; a consonant skeleton key for transliteration-robust comparison.
+- **Why:** it's script-generic (9 scripts seen) and measured best.
+- **Rejected:** indic_transliteration schemes: 67.6–68.6 vs 75.4 mean token-set ratio on 2,711 Indic↔Latin true
+  pairs; Tamil 46–48 vs 63.
+- **Evidence:** `docs/normalization_findings.md`. The skeleton lifted Indic-pair name ratio from 73.8 to 92.1 with
+  hard negatives flat (58.4 → 59.2).
+
+### D-017 · Rule baseline retired — active
+- **Decision:** the rule is kept only as a sanity baseline.
+- **Why:** 0.807 holdout / 0.749 public vs LightGBM 0.9555 holdout.
+
+### D-018 · Fast iteration loop on samples before full runs — active
+- **Decision:**
+  - blocking ideas are tested on a 2% noisy-record sample (about 1 minute per variant)
+  - model ideas are tested on the tune and holdout groups
+  - only winners get full-data runs
+- **Why:** a full blocking run takes 40–60 min on the laptop. The sample recall numbers matched full-data recall (95.2%
+  sample vs 94.0% full).
+
+### D-019 · Every heavy stage runs per hash bucket; big inputs are streamed Parquet views — active
+- **Decision:** no global window, sort, or aggregate over more than ~10 M rows; per-bucket processing; views instead
+  of in-memory tables; DuckDB spill capped at 30 GB.
+- **Why:** 5 incidents: quadratic join, 60 GB spill, writer out of memory ×2, test features 30 GB spill.
+
+### D-020 · Decisions and experiments are logged in the system — active
+- **Decision:**
+  - this file records every design decision
+  - each run's `manifest.json` records commit, config, decision IDs, per-stage counts / times / memory, metrics, and
+    the chosen decision parameters
+  - `docs/EXPERIMENTS.md` gets one row per run, with the delta vs the best
+  - stages log *why* they filtered (chosen K and its recall, chosen threshold and its tune score, EM prior)
+- **Why:** you asked for every decision to be traceable; it also stops us from repeating failed ideas.

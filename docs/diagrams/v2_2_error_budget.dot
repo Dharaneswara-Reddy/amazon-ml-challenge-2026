@@ -1,0 +1,12 @@
+digraph budget {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.3; ranksep=0.35;
+  node [shape=box, style="filled", fontname="Helvetica", fontsize=11, penwidth=0, height=0.9];
+  edge [color="#777777", arrowsize=0.7, fontname="Helvetica", fontsize=10];
+  a [label="Perfect\n1.000", fillcolor="#b9dfc9", width=1.4];
+  b [label="Blocking ceiling\n0.977\n(6% true pairs never\nbecome candidates)", fillcolor="#e3f0c8", width=1.9];
+  c [label="LightGBM v1\nholdout 0.9555\n(-0.022 decisions)", fillcolor="#fbe7b5", width=1.8];
+  d [label="Rule baseline\nholdout 0.807", fillcolor="#f8d9c4", width=1.6];
+  e [label="Rule public\n0.749\n(test: +23% distractors,\nFrance 21% empty)", fillcolor="#f4c7c3", width=2.0];
+  a -> b [label=" blocking"]; b -> c [label=" matcher"]; c -> d [label=" (rule instead)", style=dashed]; d -> e [label=" train→test shift"];
+  goal [shape=note, style="filled", fillcolor="#fffbe6", label="v2 targets:\n• blocking recall 94% → ≥98%  (ceiling ≈ 0.99)\n• decision gap 0.022 → ≤0.01  (distractor features, stage-2)\n• shift gap measured + corrected  (EM prior, France check)\n→ aim ≥ 0.98 public"];
+}

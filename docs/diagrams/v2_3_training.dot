@@ -1,0 +1,21 @@
+digraph training {
+  rankdir=LR; bgcolor="white"; pad=0.3; nodesep=0.3; ranksep=0.55;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, penwidth=1.1];
+  edge [color="#555555", fontname="Helvetica", fontsize=9];
+  subgraph cluster_split { label="Train Source-1 entities split by md5(id) mod 100 — every pair of an entity stays in one group"; fontname="Helvetica-Bold"; fontsize=11; style="rounded"; color="#999999";
+    fitA [label="fit fold A\nbuckets 0–14", fillcolor="#e8f1fb"];
+    fitB [label="fit fold B\nbuckets 15–29", fillcolor="#e8f1fb"];
+    tune [label="tune\nbuckets 30–34", fillcolor="#fff4cc"];
+    hold [label="holdout\nbuckets 35–39\n(never tuned on)", fillcolor="#d9f2e3"];
+  }
+  tok [label="token log-odds &\nabbreviation maps\n(learned per fold)", fillcolor="#f7f7f7"];
+  m1a [label="stage-1 on A\n→ predict B", fillcolor="#dbe8f7"];
+  m1b [label="stage-1 on B\n→ predict A", fillcolor="#dbe8f7"];
+  m1 [label="stage-1 on A+B\n→ predict tune,\nholdout, test", fillcolor="#dbe8f7"];
+  m2 [label="stage-2 trained on\nout-of-fold stage-1\n+ context features", fillcolor="#c9dcf2"];
+  dec [label="decision rule +\nthreshold / exp-F\nchosen on tune", fillcolor="#fff4cc"];
+  score [label="final score on holdout\n→ EXPERIMENTS.md", fillcolor="#d9f2e3"];
+  fitA -> tok; fitB -> tok;
+  fitA -> m1a; fitB -> m1b; fitA -> m1; fitB -> m1;
+  m1a -> m2; m1b -> m2; m1 -> dec [label=" tune preds"]; m2 -> dec; tune -> dec; dec -> score; hold -> score;
+}

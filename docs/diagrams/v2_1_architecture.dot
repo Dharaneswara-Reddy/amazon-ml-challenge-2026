@@ -1,0 +1,15 @@
+digraph v2 {
+  rankdir=TB; bgcolor="white"; pad=0.3; nodesep=0.25; ranksep=0.28;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=6.8, penwidth=1.1];
+  edge [color="#555555", arrowsize=0.7, fontname="Helvetica", fontsize=9];
+  s0 [label="S0  Ingest — organizer TSV → Parquet (exact row counts, CSV-quote decoding)   [kept]", fillcolor="#eeeeee"];
+  s1 [label="S1  Normalize v2 — names: core / legal form / type words / skeleton;  addresses: house no. / unit / street / city / admin\nIndic legal-form abbreviations learned from train pairs;  admin units (state, région, département) split out and down-weighted", fillcolor="#fff4cc"];
+  s2 [label="S2  Block v2 — same country only;  7 composite passes + char-3gram TF-IDF top-k + name-only pass for empty addresses\nunion → LEARNED cheap ranker → top-K per noisy record   (target pair recall ≥ 98%, today 94%)", fillcolor="#fff4cc"];
+  s3 [label="S3  Features v2 — string sims (kept) + address components + token-alignment differences (typo vs replaced vs added word)\n+ learned token log-odds (out-of-fold, fit group only) + numeric proximity + rank/margin context — all computed per hash bucket", fillcolor="#fff4cc"];
+  s4 [label="S4  Stage-1 LightGBM — pairwise P(match);  larger fit set, lr 0.1, early stopping (v1 hit the 2000-round cap)", fillcolor="#e8f1fb"];
+  s5 [label="S5  Stage-2 LightGBM — stage-1 P + competition features (rank in record / entity, margin to runner-up, entity confidence,\ncross-source agreement S2↔S3);  trained on out-of-fold stage-1 predictions (no leakage)", fillcolor="#e8f1fb"];
+  s6 [label="S6  Decide — each noisy record → ≤ 1 entity;  per-entity expected-F0.5 set vs global threshold (choose on holdout)\n+ prior-shift correction for test (EM; test has 23% more noisy records per entity)", fillcolor="#e8f1fb"];
+  s7 [label="S7  Evaluate — macro F0.5, per country / source, error taxonomy, blocking & oracle ceilings;  logs → EXPERIMENTS.md", fillcolor="#d9f2e3"];
+  s8 [label="S8  Write + validate + freeze — streaming writer, organizer validator, submissions/NN + code zip", fillcolor="#fde2e2"];
+  s0 -> s1 -> s2 -> s3 -> s4 -> s5 -> s6 -> s7 -> s8;
+}
