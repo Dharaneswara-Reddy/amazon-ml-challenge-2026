@@ -16,6 +16,8 @@ import pyarrow.parquet as pq
 from ber.features import FEATURES
 
 log = logging.getLogger(__name__)
+# LightGBM prints eval progress to stdout by default; stdout carries the CLI's JSON result, so route it to logging.
+lgb.register_logger(log)
 
 DEFAULT_PARAMS: dict = {
     "objective": "binary",
