@@ -72,8 +72,12 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                        rb=$(awk '/^read_bytes/ {print $2}' /proc/$pp/io 2>/dev/null)
                        tot=$(stat -c %s artifacts/cache/feat_v2_test.parquet 2>/dev/null)
                        [ -n "$rb" ] && [ -n "$tot" ] && pct=$(( rb * 100 / tot )) && [ $pct -gt 100 ] && pct=100
+                     elif [ $i -eq 2 ] && [ -e "$RUN/pred2_test.parquet" ]; then
+                       # same rows and columns as the finished stage-1 file, so the size ratio tracks progress
+                       pct=$(( $(stat -c %s "$RUN/pred2_test.parquet") * 100 / $(stat -c %s "$RUN/pred1_test.parquet") ))
+                       [ $pct -gt 99 ] && pct=99
                      fi
-                     if [ -n "$pct" ]; then echo "    [>] $label   $(bar "$pct" 100 | sed 's| [0-9]*/100$||') ${pct}% of test features read"
+                     if [ -n "$pct" ]; then echo "    [>] $label   $(bar "$pct" 100 | sed 's| [0-9]*/100$||') ${pct}%"
                      else echo "    [>] $label"; fi
                    else echo "    [ ] $label"; fi
                  done
