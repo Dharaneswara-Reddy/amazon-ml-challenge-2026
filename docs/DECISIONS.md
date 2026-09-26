@@ -218,3 +218,19 @@ FIT group). Measured on the full train split: holdout recall 94.54% → 98.20% a
 EM prior estimates on v2 test differ by country (India −0.56, US −0.46, France −0.32 logit vs the pooled −0.49), so the
 pooled shift over-corrects France (G_public_gap_france.md); the shift is now estimated per test country. LightGBM
 learning rate 0.1 → 0.2: 27% faster and lower logloss on a 1.2M-row benchmark (C_speed.md).
+
+### D-024 Transductive vocabulary adaptation for France (submission #5)
+Rule-labelled France test pairs (number signature + model agreement; rules 99.5-99.99% precise on train) give a French
+signature vocabulary and token log-odds; France feature rows are recomputed with them (`ber adapt`, `predict --adapted`).
+Public 0.977648 → 0.981323 (France ≈0.921 → 0.946). Superseded by D-025.
+
+### D-025 Self-labelled per-country vocabularies everywhere; no EM shift for France (submission #6, best)
+In a train-India / test-US simulation, learning ALL vocabularies from self-labels (distractor = sole generator offset;
+true = all numbers equal and core-name ratio ≥ 0.6) and applying each pair's own-country table to training rows too
+recovered 77% of the unseen-country gap with no in-domain cost; the EM prior shift never helped an unseen country
+(research_notes/v4/I_transfer.md). `ber learn-selfvocab`; `features.self_vocab: true`; `decision.shift_skip_countries:
+[France]`. Local holdout 0.9879; public 0.982191 (France ≈0.950).
+
+### D-026 France pseudo-label self-training — rejected
+Adding rule/model-labelled France test pairs to stage-1 training (`ber pseudo`, `train --extra-fit`) scored public
+0.981916 (#7), below #6; not used.

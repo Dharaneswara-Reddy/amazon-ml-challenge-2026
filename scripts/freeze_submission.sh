@@ -8,6 +8,12 @@ RUN_DIR=${1:?usage: freeze_submission.sh <run_dir> [change note]}
 CHANGE=${2:-}
 PY=${PY:-.venv/bin/python}
 
+# the run's code must equal HEAD's code (outputs are produced by the run; the zip is built from HEAD)
+RUN_COMMIT=$(.venv/bin/python -c "import json,sys;print(json.load(open(sys.argv[1]+'/manifest.json'))['git']['sha'])" "$1" 2>/dev/null || true)
+if [ -n "$RUN_COMMIT" ] && ! git diff --quiet "$RUN_COMMIT" HEAD -- code/business_entity_resolution/src; then
+  echo "WARNING: src/ changed between the run's commit $RUN_COMMIT and HEAD; recording the diff in notes.md" >&2
+  SRC_DIFF=$(git diff --stat "$RUN_COMMIT" HEAD -- code/business_entity_resolution/src)
+fi
 if ! git diff --quiet HEAD -- code/; then
   echo "code/ has uncommitted changes; commit first so the zip matches the outputs" >&2
   exit 1
@@ -54,3 +60,6 @@ with open("submissions/log.md", "a", encoding="utf-8") as fh:
 print(f"frozen {out_dir}")
 EOF
 ls -la "$DIR"
+if [ -n "${SRC_DIFF:-}" ]; then
+  printf "\n## WARNING: src/ differs between the run commit %s and HEAD\n\n%s\n" "$RUN_COMMIT" "$SRC_DIFF" >> "$DIR/notes.md"
+fi
