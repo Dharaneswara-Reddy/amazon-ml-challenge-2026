@@ -131,6 +131,43 @@ def run_validate_output(args: argparse.Namespace, cfg: Config) -> int:
     return subprocess.run(cmd, cwd=cfg.root, check=False).returncode
 
 
+def add_probe(p: argparse.ArgumentParser) -> None:
+    """Arguments for ``ber probe-empty-country``."""
+    p.add_argument("--country", required=True, help="country whose Source 1 rows get an empty match list, e.g. France")
+
+
+def run_probe(args: argparse.Namespace, cfg: Config) -> int:
+    """Leaderboard probe: rewrite output/matching_results.tsv with every row of one country emptied.
+
+    The public score difference to the unmodified submission measures that country's own F0.5 (an emptied row scores 1
+    for a singleton, 0 otherwise). candidate_pairs.tsv is left unchanged.
+    """
+    import duckdb
+
+    from ber import io
+
+    out = Path(cfg.paths.output_dir) / "matching_results.tsv"
+    con = duckdb.connect()
+    s1 = io.raw_parquet_path(cfg, "test", 1)
+    rows = con.execute(
+        f"""SELECT m.source1_entity_id,
+                   CASE WHEN s.country = ? THEN '' ELSE m.matched_entity_ids END AS matched_entity_ids,
+                   s.country = ? AS emptied
+            FROM read_csv('{out}', delim='\t', header=true, all_varchar=true) m
+            LEFT JOIN read_parquet('{s1}') s ON s.entity_id = m.source1_entity_id""",
+        [args.country, args.country],
+    ).fetchall()
+    n_emptied = sum(1 for r in rows if r[2])
+    tmp = out.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write("source1_entity_id\tmatched_entity_ids\n")
+        for sid, matched, _ in rows:
+            fh.write(f"{sid}\t{matched or ''}\n")
+    tmp.replace(out)
+    _emit({"country": args.country, "rows": len(rows), "rows_emptied": n_emptied}, None)
+    return 0
+
+
 def add_split(p: argparse.ArgumentParser) -> None:
     """Arguments for stages that run per split."""
     p.add_argument("--split", choices=("train", "test"), required=True)
@@ -250,6 +287,7 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("predict", "predict test and write submission files", add_predict, run_predict),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
+    ("probe-empty-country", "leaderboard probe: empty one country's match lists in output/", add_probe, run_probe),
 ]
 
 
