@@ -1,0 +1,4 @@
+# Experiment: larger trees (measured lower logloss on a 1.2M-row benchmark, research_notes/v3/C_speed.md)
+model:
+  params:
+    num_leaves: 127
