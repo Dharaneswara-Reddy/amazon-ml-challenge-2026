@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pipeline v3 runbook (docs/PLAN_V3.md). Reuses the v2 normalized data, v2 candidates and v2 ranker in artifacts/cache.
 #   scripts/run_v3.sh all        block3 train/test -> log-odds + signature vocab -> features -> train -> predict -> freeze
-#   scripts/run_v3.sh from_features | train | predict <run_dir>
+#   scripts/run_v3.sh from_features | from_features_test | train | predict <run_dir>
 # Every step logs to artifacts/logs/v3_<step>.log (+ .json result); live view: watch -n 5 scripts/progress.sh
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -25,6 +25,13 @@ case "${1:?usage: run_v3.sh all|from_features|train|predict <run_dir>}" in
   from_features)
     run learn_logodds learn-logodds
     run features_train features --split train
+    run features_test features --split test
+    step "prep done"
+    "$0" train
+    "$0" predict "$(rundir)"
+    step "all done"
+    ;;
+  from_features_test)
     run features_test features --split test
     step "prep done"
     "$0" train
