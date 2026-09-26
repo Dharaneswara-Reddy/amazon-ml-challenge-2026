@@ -48,6 +48,13 @@ case "${1:?usage: run_v3.sh all|from_features|train|predict <run_dir>}" in
     scripts/freeze_submission.sh "$RUN" "v3: blocking v3 (compound keys + learned cut) + signature features + per-country prior shift + lr 0.2"
     step "all done"
     ;;
+  adapt)
+    RUN=${2:?usage: run_v3.sh adapt <run_dir>}
+    run adapt adapt --run "$RUN" --country France
+    run predict_adapted predict --run "$RUN" --adapted
+    scripts/freeze_submission.sh "$RUN" "v4a: v3 + France transductive adaptation (rule-labelled test pairs -> French signature vocab + token log-odds; France features recomputed)"
+    step "all done"
+    ;;
   predict)
     RUN=${2:?usage: run_v3.sh predict <run_dir>}
     run predict predict --run "$RUN"

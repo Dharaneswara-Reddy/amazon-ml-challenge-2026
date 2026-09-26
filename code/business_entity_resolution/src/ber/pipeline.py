@@ -531,7 +531,7 @@ def _group_arrays(con: duckdb.DuckDBPyConnection, cfg: Config, preds: Path, grou
 def _complete(path: Path) -> bool:
     """True if ``path`` is a finished parquet file (its footer is written; a killed writer leaves none)."""
     try:
-        pq.ParquetFile(path).metadata
+        _ = pq.ParquetFile(path).metadata
         return True
     except Exception:
         return False
@@ -659,34 +659,40 @@ def _append_experiment(cfg: Config, run: Path, metrics: dict[str, Any]) -> None:
         fh.write(row)
 
 
-def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True, resume: bool = False) -> dict[str, Any]:
+def predict_stage(
+    cfg: Config, run_dir: Path, prior_shift: bool = True, resume: bool = False, adapted: bool = False
+) -> dict[str, Any]:
     """Score test: stage 1 → stage-2 features → stage 2 → prior-shift correction (D-010) → decision → write outputs.
 
     resume: reuse complete pred1_test / s2_test / pred2_test parquets already in ``run_dir``. The decision works on
     integer entity / right-record indices only; ids stay in DuckDB and are joined back for the selected pairs
     (holding 30M id strings as Python objects exceeded the 15 GB laptop and was OOM-killed).
+    adapted: score feat_<v>_test_adapted.parquet (from adapt_stage) and keep its predictions in run_dir/adapted/.
     """
     params = json.loads((run_dir / "decision_params.json").read_text())
     manifest = json.loads((run_dir / "manifest.json").read_text())
     b1 = lgb.Booster(model_file=str(run_dir / "model1.txt"))
     b2 = lgb.Booster(model_file=str(run_dir / "model2.txt"))
     rows = int(cfg.engine.batch_rows)
-    con = connect(cfg, run_dir / "work_test.duckdb")
+    feat_in = feat_path(cfg, "test", "adapted") if adapted else feat_path(cfg, "test")
+    work = run_dir / "adapted" if adapted else run_dir
+    work.mkdir(exist_ok=True)
+    con = connect(cfg, work / "work_test.duckdb")
     try:
         def done(fname: str) -> bool:
             """True when resuming and ``fname`` is a complete parquet in the run dir."""
-            return resume and _complete(run_dir / fname)
+            return resume and _complete(work / fname)
 
         with stage("predict", run=run_dir):
             if not done("pred1_test.parquet"):
-                predict_file(b1, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", rows)
+                predict_file(b1, feat_in, work / "pred1_test.parquet", rows)
             if not done("s2_test.parquet"):
                 write_stage2_features(
-                    con, feat_path(cfg, "test"), run_dir / "pred1_test.parquet", run_dir / "s2_test.parquet"
+                    con, feat_in, work / "pred1_test.parquet", work / "s2_test.parquet"
                 )
             if not done("pred2_test.parquet"):
                 predict_file(
-                    b2, run_dir / "s2_test.parquet", run_dir / "pred2_test.parquet", rows, features=MODEL2_FEATURES
+                    b2, work / "s2_test.parquet", work / "pred2_test.parquet", rows, features=MODEL2_FEATURES
                 )
         s1_raw = io.raw_parquet_path(cfg, "test", 1)
         con.execute(
@@ -694,7 +700,7 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True, resume: 
                 SELECT row_number() OVER () - 1 AS i, x.lid, x.rid, x.p,
                        dense_rank() OVER (ORDER BY x.lid) - 1 AS li, dense_rank() OVER (ORDER BY x.rid) - 1 AS rc,
                        coalesce(s.country, '') AS country
-                FROM read_parquet('{run_dir / "pred2_test.parquet"}') x
+                FROM read_parquet('{work / "pred2_test.parquet"}') x
                 LEFT JOIN read_parquet('{s1_raw}') s ON s.entity_id = x.lid"""
         )
         countries = [r[0] for r in con.execute("SELECT DISTINCT country FROM pt ORDER BY 1").fetchall()]
@@ -747,8 +753,8 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True, resume: 
         ).fetchall()
     finally:
         con.close()
-        (run_dir / "work_test.duckdb").unlink(missing_ok=True)
-    (run_dir / "predict.json").write_text(json.dumps({**info, **result}, indent=2, default=str))
+        (work / "work_test.duckdb").unlink(missing_ok=True)
+    (work / "predict.json").write_text(json.dumps({**info, **result}, indent=2, default=str))
     return {**info, **result}
 
 
@@ -762,3 +768,87 @@ def _output_views(con: duckdb.DuckDBPyConnection, cfg: Config) -> None:
     con.execute(f"CREATE OR REPLACE VIEW s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")
     r2, r3 = io.raw_parquet_path(cfg, "test", 2), io.raw_parquet_path(cfg, "test", 3)
     con.execute(f"CREATE OR REPLACE VIEW valid_right AS SELECT entity_id FROM read_parquet(['{r2}', '{r3}'])")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# S6b: transductive test adaptation for the unseen country (D-024)
+# ---------------------------------------------------------------------------------------------------------------
+
+# Rules that label test pairs without the name text; precision measured on train holdout+tune (India / US):
+# T4 numbers all equal & best pair of its right & p2 >= 0.5 -> match (0.9987 / 0.9989); D1 sole changed address
+# number with an offset of the distractor generator -> non-match (0.995); D2 other pairs of a right whose best pair
+# is D1 -> non-match (0.99998); E p2 < 0.01 -> non-match (0.9992). research_notes/v4/H_france.md.
+_NUMEQ = ("coalesce(f.sg_num_changed, 1) = 0 AND coalesce(f.sg_num_l_only, 1) = 0 AND coalesce(f.sg_num_r_only, 1) = 0 "
+          "AND coalesce(f.sg_num_eq, 0) >= 1")
+PSEUDO_SCALE = 1 / 1.18  # pseudo-label vocab values run ~1.18x true-label values (measured on train)
+
+
+def adapt_stage(cfg: Config, run_dir: Path, country: str = "France", per_rule: int = 350_000) -> dict[str, Any]:
+    """Learn signature vocab + token log-odds for an unseen test country from rule-labelled test pairs (D-024).
+
+    Uses the run's pass-1 test predictions (pred2_test) and the test feature file. Pseudo labels (rules above) of the
+    country's pairs give a vocabulary that is merged over the fit-group vocabulary (values scaled by PSEUDO_SCALE);
+    the country's feature rows are recomputed with it and all other rows are kept unchanged, giving
+    feat_<v>_test_adapted.parquet for ``predict_stage(..., adapted=True)``.
+    """
+    from ber import textdiff
+
+    db = io.cache_dir(cfg) / "adapt_test.duckdb"
+    db.unlink(missing_ok=True)
+    con = connect(cfg, db)
+    out: dict[str, Any] = {"country": country}
+    base, dst = feat_path(cfg, "test"), feat_path(cfg, "test", "adapted")
+    try:
+        _views(con, cfg, "test")
+        in_country = f"(SELECT entity_id FROM L WHERE country_norm = '{country.lower()}')"
+        con.execute(f"""CREATE OR REPLACE TABLE lab AS
+            WITH f AS (SELECT f.lid, f.rid, f.r_rank, f.sg_num_changed, f.sg_num_l_only, f.sg_num_r_only, f.sg_num_eq,
+                              f.sg_sole_off_in_s, p.p
+                       FROM read_parquet('{base}') f JOIN read_parquet('{run_dir / "pred2_test.parquet"}') p
+                       USING (lid, rid) WHERE f.lid IN {in_country}),
+                 d1 AS (SELECT DISTINCT rid FROM f WHERE r_rank = 1 AND sg_sole_off_in_s = 1),
+                 t AS (SELECT f.lid, f.rid,
+                         CASE WHEN {_NUMEQ} AND f.r_rank = 1 AND f.p >= 0.5 THEN 1
+                              WHEN f.sg_sole_off_in_s = 1 OR d1.rid IS NOT NULL OR f.p < 0.01 THEN 0 END AS y,
+                         CASE WHEN {_NUMEQ} AND f.r_rank = 1 AND f.p >= 0.5 THEN 'T'
+                              WHEN f.sg_sole_off_in_s = 1 OR d1.rid IS NOT NULL THEN 'D' WHEN f.p < 0.01 THEN 'E' END AS g
+                       FROM f LEFT JOIN d1 USING (rid))
+            SELECT * FROM t WHERE y IS NOT NULL""")
+        out["pseudo"] = dict(con.execute("SELECT g, count(*) FROM lab GROUP BY 1 ORDER BY 1").fetchall())
+        rows = con.execute(f"""WITH s AS (SELECT *, row_number() OVER (PARTITION BY g ORDER BY hash(lid || rid)) AS k
+                                          FROM lab)
+            SELECT l.name_norm, l.addr_norm, r.name_norm, r.addr_norm, s.y, l.name_core, r.name_core
+            FROM s JOIN L l ON l.entity_id = s.lid JOIN R r ON r.entity_id = s.rid WHERE s.k <= {per_rule}""").fetchall()
+        sig_new = learn_sigvocab([r[:5] for r in rows], int(cfg.engine.workers))
+        lo_new = textdiff.learn_token_logodds([(r[5], r[6], r[4]) for r in rows])
+        del rows
+        sig_fit, lo_fit = _sigvocab(cfg, "fit") or {}, _logodds(cfg, "fit") or {}
+        sig = {k: {**sig_fit.get(k, {}), **{w: round(v * PSEUDO_SCALE, 3) for w, v in sig_new.get(k, {}).items()}}
+               for k in set(sig_fit) | set(sig_new)}
+        lo = {**lo_fit, **lo_new}
+        (learned_dir(cfg) / "sigvocab_adapt.json").write_text(json.dumps(sig, ensure_ascii=False))
+        (learned_dir(cfg) / "logodds_adapt.json").write_text(json.dumps(lo, ensure_ascii=False))
+        out.update(sig_tokens_new=sum(map(len, sig_new.values())), logodds_tokens_new=len(lo_new))
+        con.execute(f"CREATE OR REPLACE VIEW candidates AS SELECT * FROM read_parquet('{model_cand_path(cfg, 'test')}')")
+        part = io.cache_dir(cfg) / "feat_adapt_part.parquet"
+        with stage("adapt_features", country=country) as st:
+            st["rows"] = write_features(
+                con, part, None, int(cfg.engine.batch_rows), int(cfg.engine.workers),
+                f"c.lid IN {in_country}", True, int(cfg.get("features", {}).get("buckets", 16)),
+                name_idf(con), lo, sig,
+            )
+        tmp = dst.with_suffix(".tmp.parquet")
+        con.execute(f"""COPY (SELECT * FROM read_parquet('{base}') WHERE lid NOT IN {in_country}
+                              UNION ALL SELECT * FROM read_parquet('{part}') WHERE in_group = 1)
+                        TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)""")
+        tmp.rename(dst)
+        part.unlink(missing_ok=True)
+        n_base, n_new = (pq.ParquetFile(p).metadata.num_rows for p in (base, dst))
+        if n_base != n_new:
+            raise RuntimeError(f"adapted feature file has {n_new} rows, base has {n_base}")
+        out["rows"] = n_new
+    finally:
+        con.close()
+        db.unlink(missing_ok=True)
+    log.info(kv(event="adapt_done", **{k: v for k, v in out.items() if not isinstance(v, dict)}))
+    return out

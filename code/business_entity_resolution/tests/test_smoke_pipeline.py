@@ -9,6 +9,7 @@ from pathlib import Path
 from ber import io
 from ber.config import PACKAGE_DIR, load_config
 from ber.pipeline import (
+    adapt_stage,
     block3_stage,
     block_stage,
     features_stage,
@@ -127,6 +128,8 @@ def test_pipeline_end_to_end_passes_official_validator(tmp_path: Path) -> None:
         features_stage(cfg, split)
     run_dir = train_stage(cfg, "smoke")
     result = predict_stage(cfg, run_dir)
+    adapt_stage(cfg, run_dir, "France", per_rule=2000)
+    result = predict_stage(cfg, run_dir, adapted=True)
 
     assert stats["final_pairs"] > 0
     assert (run_dir / "model1.txt").exists() and (run_dir / "model2.txt").exists()

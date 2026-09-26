@@ -168,6 +168,20 @@ def run_probe(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def add_adapt(p: argparse.ArgumentParser) -> None:
+    """Arguments for ``ber adapt``."""
+    p.add_argument("--run", type=Path, required=True, help="run dir whose pass-1 test predictions seed the pseudo labels")
+    p.add_argument("--country", default="France", help="unseen test country to adapt to")
+
+
+def run_adapt(args: argparse.Namespace, cfg: Config) -> int:
+    """Transductive adaptation: pseudo-label the country's test pairs, learn its vocab, recompute its test features."""
+    from ber.pipeline import adapt_stage
+
+    _emit(adapt_stage(cfg, args.run, args.country), None)
+    return 0
+
+
 def add_split(p: argparse.ArgumentParser) -> None:
     """Arguments for stages that run per split."""
     p.add_argument("--split", choices=("train", "test"), required=True)
@@ -264,13 +278,14 @@ def add_predict(p: argparse.ArgumentParser) -> None:
     p.add_argument("--run", type=Path, required=True, help="run dir produced by ber train")
     p.add_argument("--no-prior-shift", action="store_true", help="skip the EM prior-shift correction (D-010)")
     p.add_argument("--resume", action="store_true", help="reuse complete test prediction files in the run dir")
+    p.add_argument("--adapted", action="store_true", help="score the adapted test features (run `ber adapt` first)")
 
 
 def run_predict(args: argparse.Namespace, cfg: Config) -> int:
     """Score test candidates with a trained run and write both submission files."""
     from ber.pipeline import predict_stage
 
-    _emit(predict_stage(cfg, args.run, not args.no_prior_shift, args.resume), None)
+    _emit(predict_stage(cfg, args.run, not args.no_prior_shift, args.resume, args.adapted), None)
     return 0
 
 
@@ -287,6 +302,7 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("predict", "predict test and write submission files", add_predict, run_predict),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
+    ("adapt", "adapt test features to an unseen country from rule-labelled test pairs", add_adapt, run_adapt),
     ("probe-empty-country", "leaderboard probe: empty one country's match lists in output/", add_probe, run_probe),
 ]
 
