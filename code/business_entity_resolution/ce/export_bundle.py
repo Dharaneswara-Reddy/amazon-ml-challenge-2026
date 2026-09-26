@@ -3,7 +3,7 @@
 Pairs are text only ("name | address" of both sides); labels only for FIT-group training pairs (provided train data).
   train.parquet    (ta, tb, label)    all FIT-group pairs with OOF stage-1 p in (LO, HI) + a sample of easy pairs
   score_<g>.parquet (lid, rid, ta, tb) pairs of pred2_<g> with LO < p < HI for g in tune, holdout, test
-Usage: python export_bundle.py RUN_DIR OUT_DIR [N_EASY]
+Usage: python export_bundle.py RUN_DIR OUT_DIR [N_EASY] [LO] [HI]
 """
 
 import sys
@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[3]
 C = ROOT / "artifacts" / "cache"
 
 
-def main(run: Path, out: Path, n_easy: int) -> None:
-    """Write train.parquet and score_{tune,holdout,test}.parquet into ``out``."""
+def main(run: Path, out: Path, n_easy: int, lo: float = LO, hi: float = HI) -> None:
+    """Write train.parquet and score_{tune,holdout,test}.parquet into ``out`` (band lo < p < hi)."""
     out.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
     con.execute("SET threads=8; SET memory_limit='4GB'")
@@ -34,16 +34,18 @@ def main(run: Path, out: Path, n_easy: int) -> None:
     ta = "l.business_name || ' | ' || coalesce(l.business_address, '') AS ta"
     tb = "r.business_name || ' | ' || coalesce(r.business_address, '') AS tb"
     fit = "md5_number(lid) % 100 < 30"
-    train_sql = f"""SELECT lid, rid, label FROM read_parquet('{run}/pred1_fit.parquet') WHERE {fit} AND p > {LO} AND p < {HI}
+    train_sql = f"""SELECT lid, rid, label FROM read_parquet('{run}/pred1_fit.parquet') WHERE {fit} AND p > {lo} AND p < {hi}
         UNION ALL
         SELECT * FROM (SELECT lid, rid, label FROM read_parquet('{run}/pred1_fit.parquet')
-                       WHERE {fit} AND (p <= {LO} OR p >= {HI}) USING SAMPLE {n_easy} ROWS (reservoir, 42))"""
+                       WHERE {fit} AND (p <= {lo} OR p >= {hi}) USING SAMPLE {n_easy} ROWS (reservoir, 42))"""
     print("train", text("train", train_sql, f"{ta}, {tb}, q.label::TINYINT AS label", out / "train.parquet"))
     for g in ("tune", "holdout", "test"):
         split = "test" if g == "test" else "train"
-        q = f"SELECT lid, rid FROM read_parquet('{run}/pred2_{g}.parquet') WHERE p > {LO} AND p < {HI}"
+        q = f"SELECT lid, rid FROM read_parquet('{run}/pred2_{g}.parquet') WHERE p > {lo} AND p < {hi}"
         print(g, text(split, q, f"q.lid, q.rid, {ta}, {tb}", out / f"score_{g}.parquet"))
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else 600_000)
+    a = sys.argv
+    main(Path(a[1]), Path(a[2]), int(a[3]) if len(a) > 3 else 600_000, float(a[4]) if len(a) > 4 else LO,
+         float(a[5]) if len(a) > 5 else HI)
