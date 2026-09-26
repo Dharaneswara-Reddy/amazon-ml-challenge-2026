@@ -296,13 +296,14 @@ def add_predict(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-prior-shift", action="store_true", help="skip the EM prior-shift correction (D-010)")
     p.add_argument("--resume", action="store_true", help="reuse complete test prediction files in the run dir")
     p.add_argument("--adapted", action="store_true", help="score the adapted test features (run `ber adapt` first)")
+    p.add_argument("--stage3", type=Path, default=None, help="ce/stage3.py output dir: decide on its test scores")
 
 
 def run_predict(args: argparse.Namespace, cfg: Config) -> int:
     """Score test candidates with a trained run and write both submission files."""
     from ber.pipeline import predict_stage
 
-    _emit(predict_stage(cfg, args.run, not args.no_prior_shift, args.resume, args.adapted), None)
+    _emit(predict_stage(cfg, args.run, not args.no_prior_shift, args.resume, args.adapted, args.stage3), None)
     return 0
 
 

@@ -758,7 +758,12 @@ def _append_experiment(cfg: Config, run: Path, metrics: dict[str, Any]) -> None:
 
 
 def predict_stage(
-    cfg: Config, run_dir: Path, prior_shift: bool = True, resume: bool = False, adapted: bool = False
+    cfg: Config,
+    run_dir: Path,
+    prior_shift: bool = True,
+    resume: bool = False,
+    adapted: bool = False,
+    stage3_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Score test: stage 1 → stage-2 features → stage 2 → prior-shift correction (D-010) → decision → write outputs.
 
@@ -766,8 +771,10 @@ def predict_stage(
     integer entity / right-record indices only; ids stay in DuckDB and are joined back for the selected pairs
     (holding 30M id strings as Python objects exceeded the 15 GB laptop and was OOM-killed).
     adapted: score feat_<v>_test_adapted.parquet (from adapt_stage) and keep its predictions in run_dir/adapted/.
+    stage3_dir: a ce/stage3.py output dir (D-028): its pred2_test.parquet (v5 + cross-encoder scores) and
+    decision_params.json replace the run's own; model scoring is skipped.
     """
-    params = json.loads((run_dir / "decision_params.json").read_text())
+    params = json.loads(((stage3_dir or run_dir) / "decision_params.json").read_text())
     # optional decision knobs from config (e.g. empty_weight, rule): variants of a trained run without retraining
     params.update(dict(cfg.get("decision", {}).get("params_override", {}) or {}))
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -775,7 +782,7 @@ def predict_stage(
     b2 = lgb.Booster(model_file=str(run_dir / "model2.txt"))
     rows = int(cfg.engine.batch_rows)
     feat_in = feat_path(cfg, "test", "adapted") if adapted else feat_path(cfg, "test")
-    work = run_dir / "adapted" if adapted else run_dir
+    work = stage3_dir or (run_dir / "adapted" if adapted else run_dir)
     work.mkdir(exist_ok=True)
     con = connect(cfg, work / "work_test.duckdb")
     try:
@@ -784,13 +791,16 @@ def predict_stage(
             return resume and _complete(work / fname)
 
         with stage("predict", run=run_dir):
-            if not done("pred1_test.parquet"):
+            if stage3_dir is not None:
+                if not _complete(work / "pred2_test.parquet"):
+                    raise FileNotFoundError(f"{work}/pred2_test.parquet missing: run ce/stage3.py with ce_test files")
+            elif not done("pred1_test.parquet"):
                 predict_file(b1, feat_in, work / "pred1_test.parquet", rows)
-            if not done("s2_test.parquet"):
+            if stage3_dir is None and not done("s2_test.parquet"):
                 write_stage2_features(
                     con, feat_in, work / "pred1_test.parquet", work / "s2_test.parquet"
                 )
-            if not done("pred2_test.parquet"):
+            if stage3_dir is None and not done("pred2_test.parquet"):
                 predict_file(
                     b2, work / "s2_test.parquet", work / "pred2_test.parquet", rows, features=MODEL2_FEATURES
                 )
