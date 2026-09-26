@@ -198,3 +198,23 @@ new record that supersedes the old one; never edit history. Status: **active** �
   - `compare_decisions` picked the rule by holdout score. Replaced with tune-half selection (D-004).
   - v1 never fed `skel_ratio`/`skel_jw` to the model; they were missing from the feature list.
   - Concatenated fold files duplicated rival pairs; they are now deduplicated with the in-group row preferred.
+
+## v3 decisions (26 Sep 2026; evidence in research_notes/v3/, plan docs/PLAN_V3.md)
+
+### D-021 Distractor-signature features
+The generator nudges one address number UP by an offset drawn uniformly from {+1..+5, +7, +9, +11, +13, +21} and edits
+the name from small vocabularies (legal-form swap, inserted word); true copies show typos, abbreviations, dropped words
+and digit truncation (F_generator_signature.md). `ber.signature` diffs each pair and emits 46 features (offset-set
+membership, which number changed, edit-token log-odds). Vocabularies are learned from labelled FIT-group candidate
+pairs, out-of-fold for fitA/fitB. Measured +0.23 holdout points as an add-on to v2 (FP 1,090 → 731).
+
+### D-022 Blocking v3: compound keys + learned cut
+74% of blocking misses share no single rare token; combinations are rare. Five compound-key IDF passes (px, hs, n2,
+na, phx) on top of the v2 candidates, then "legacy-linear top-1 per right OR cut-GBDT p ≥ 1e-3" (GBDT trained on the
+FIT group). Measured on the full train split: holdout recall 94.54% → 98.20% at 7.6 candidates per S1 (v2: 14.1)
+(E_proof_end_to_end.md). The cut runs per right bucket to bound spill.
+
+### D-023 Per-country EM prior shift; learning rate 0.2
+EM prior estimates on v2 test differ by country (India −0.56, US −0.46, France −0.32 logit vs the pooled −0.49), so the
+pooled shift over-corrects France (G_public_gap_france.md); the shift is now estimated per test country. LightGBM
+learning rate 0.1 → 0.2: 27% faster and lower logloss on a 1.2M-row benchmark (C_speed.md).
