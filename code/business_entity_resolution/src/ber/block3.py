@@ -188,6 +188,10 @@ def build_union(con: duckdb.DuckDBPyConnection, out_dir: Path, ranker_path: str 
     total = 0
     for b in range(buckets):
         t = time.time()
+        dst = out_dir / f"b{b}.parquet"
+        if dst.exists():  # resumed run: bucket already built
+            total += pq.ParquetFile(dst).metadata.num_rows
+            continue
         npart = " UNION ALL ".join(
             f"SELECT lid, rid, '{p}' AS p, s FROM cand_{p} WHERE rid % {buckets} = {b}" for p in PASSES_V3
         )
@@ -212,7 +216,6 @@ def build_union(con: duckdb.DuckDBPyConnection, out_dir: Path, ranker_path: str 
           len(list_filter({sl('r.addr_nums')}, x -> x <> '')) AS r_nnum,
           l.bkt
         FROM U JOIN L l ON l.iid = U.lid JOIN R r ON r.iid = U.rid {yjoin}"""
-        dst = out_dir / f"b{b}.parquet"
         con.execute(f"""COPY (SELECT * EXCLUDE (v2_block_score), coalesce(v2_block_score, {score}) AS block_score
                               FROM ({q})) TO '{dst}' (FORMAT parquet, COMPRESSION zstd)""")
         n = pq.ParquetFile(dst).metadata.num_rows
@@ -273,17 +276,27 @@ def apply_cut(
            "+ 0.3 * (u.n_num > 0)::INT")
     newcols = ", ".join(f"(u.s_{p} IS NOT NULL)::TINYINT AS in_{p}, coalesce(u.s_{p}, 0)::FLOAT AS s_{p}"
                         for p in PASSES_V3)
+    # union buckets are right-id buckets, so every right's candidates sit in one file: select bucket by bucket
+    # (one global window over ~130M rows spilled > 20 GiB)
+    parts = []
+    for b in range(buckets):
+        part = union_dir / f"k{b}.parquet"
+        con.execute(f"""COPY (
+            WITH k AS (
+              SELECT u.*, p.cut_p, row_number() OVER (PARTITION BY u.rid ORDER BY {lin} DESC, u.lid) AS lrank
+              FROM read_parquet('{union_dir}/b{b}.parquet') u JOIN read_parquet('{union_dir}/p{b}.parquet') p
+              USING (lid, rid))
+            SELECT l.entity_id AS lid, r.entity_id AS rid, {', '.join('u.' + f for f in V2_FLAGS)},
+              u.tok_score, u.q3_score, u.jw_core, u.jw_addr, u.jacc_addr, u.num_match, u.n_pass, u.block_score,
+              {newcols}, u.n_pass_new, u.in_v2::TINYINT AS in_v2, u.jw_strip, u.jw_phn, u.cut_p, u.lrank
+            FROM k u JOIN L l ON l.iid = u.lid JOIN R r ON r.iid = u.rid
+            WHERE u.lrank <= {top_k} OR u.cut_p >= {threshold}
+          ) TO '{part}' (FORMAT parquet, COMPRESSION zstd)""")
+        parts.append(part)
+        log.info("block3 cut selected bucket=%d/%d", b + 1, buckets)
     tmp = out_path.with_suffix(".tmp.parquet")
-    con.execute(f"""COPY (
-        WITH k AS (
-          SELECT u.*, p.cut_p, row_number() OVER (PARTITION BY u.rid ORDER BY {lin} DESC, u.lid) AS lrank
-          FROM read_parquet('{union_dir}/b*.parquet') u JOIN read_parquet('{union_dir}/p*.parquet') p USING (lid, rid))
-        SELECT l.entity_id AS lid, r.entity_id AS rid, {', '.join('u.' + f for f in V2_FLAGS)},
-          u.tok_score, u.q3_score, u.jw_core, u.jw_addr, u.jacc_addr, u.num_match, u.n_pass, u.block_score,
-          {newcols}, u.n_pass_new, u.in_v2::TINYINT AS in_v2, u.jw_strip, u.jw_phn, u.cut_p, u.lrank
-        FROM k u JOIN L l ON l.iid = u.lid JOIN R r ON r.iid = u.rid
-        WHERE u.lrank <= {top_k} OR u.cut_p >= {threshold}
-      ) TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)""")
+    files = ", ".join(f"'{p}'" for p in parts)
+    con.execute(f"COPY (SELECT * FROM read_parquet([{files}])) TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)")
     tmp.rename(out_path)
     return {"final_pairs": pq.ParquetFile(out_path).metadata.num_rows}
 

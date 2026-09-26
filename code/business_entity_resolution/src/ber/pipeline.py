@@ -264,9 +264,9 @@ def block3_stage(cfg: Config, split: str) -> dict[str, Any]:
     finally:
         con.close()
         db.unlink(missing_ok=True)
-        import shutil
+    import shutil
 
-        shutil.rmtree(union_dir, ignore_errors=True)
+    shutil.rmtree(union_dir, ignore_errors=True)  # only after success: a failed run keeps the union for a rerun
     return stats
 
 
