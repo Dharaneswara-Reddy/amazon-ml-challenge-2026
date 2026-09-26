@@ -34,7 +34,7 @@ from ber.writer import write_outputs
 
 log = logging.getLogger(__name__)
 
-DECISIONS_IN_EFFECT = [f"D-{i:03d}" for i in range(1, 24)]
+DECISIONS_IN_EFFECT = [f"D-{i:03d}" for i in range(1, 26)]
 TRAIN_GROUPS = ("fit", "tune", "holdout")
 
 
@@ -381,6 +381,95 @@ def learn_logodds_stage(cfg: Config, max_pairs: int = 3_000_000, max_sig_pairs: 
     return out
 
 
+def _selflabel_chunk(rows: list[tuple]) -> list[tuple]:
+    """Self-label rule (D-025) for (l_name, l_addr, r_name, r_addr, l_core, r_core) pairs, no ground truth used.
+
+    y = 0: the only changed address number moved by a distractor-generator offset (S_OFF; 99.5% precise on train);
+    y = 1: all address numbers equal (at least one) and core-name fuzz ratio >= 60 (87-91% precise); others dropped.
+    Returns (l_name, l_addr, r_name, r_addr, y, l_core, r_core) rows.
+    """
+    from rapidfuzz import fuzz
+
+    from ber import signature
+
+    out = []
+    for ln, la, rn, ra, lc, rc in rows:
+        m = signature.pair_ops(ln or "", la or "", rn or "", ra or "")["num"]
+        if m is None:
+            continue
+        rel = m["pairs"]
+        offs = [v for (c, v), _, _ in rel if c == "offset"]
+        if len(rel) == 1 and len(offs) == 1 and offs[0] in signature.S_OFF:
+            y = 0
+        elif not rel and m["l_only"] == 0 and m["r_only"] == 0 and m["n_eq"] >= 1 and fuzz.ratio(lc or "", rc or "") >= 60:
+            y = 1
+        else:
+            continue
+        out.append((ln, la, rn, ra, y, lc, rc))
+    return out
+
+
+def learn_selfvocab_stage(cfg: Config, n_pairs: int = 2_000_000) -> dict[str, Any]:
+    """Self-labelled vocabularies per country (D-025): signature vocab + token log-odds from rule-labelled pairs.
+
+    Train countries learn from train candidates, countries that appear only in test from test candidates (unlabelled,
+    transductive; no ground truth is used anywhere). Every pair later uses its own country's tables, training rows
+    included, so the vocabulary features mean the same thing for a country the model never saw (measured on a
+    train-India / test-US simulation: 77% of the unseen-country gap recovered, no in-domain cost).
+    Writes learned/selfvocab.json = {"sig": {country: vocab}, "lo": {country: log-odds}, "stats": ...}.
+    """
+    import multiprocessing as mp
+
+    from ber import textdiff
+
+    con = connect(cfg)
+    sig: dict[str, Any] = {}
+    lo: dict[str, Any] = {}
+    stats: dict[str, Any] = {}
+    seen: set[str] = set()
+    try:
+        for split in ("train", "test"):
+            _views(con, cfg, split)
+            countries = [r[0] for r in con.execute("SELECT DISTINCT country_norm FROM L ORDER BY 1").fetchall()]
+            for country in countries:
+                if country in seen:
+                    continue
+                seen.add(country)
+                con.execute(f"""CREATE OR REPLACE TEMP TABLE cc AS SELECT c.lid, c.rid
+                                FROM read_parquet('{model_cand_path(cfg, split)}') c
+                                WHERE c.lid IN (SELECT entity_id FROM L WHERE country_norm = '{country}')""")
+                rows = con.execute(f"""SELECT l.name_norm, l.addr_norm, r.name_norm, r.addr_norm, l.name_core, r.name_core
+                    FROM (SELECT * FROM cc USING SAMPLE {n_pairs} ROWS (reservoir, 42)) c
+                    JOIN L l ON l.entity_id = c.lid JOIN R r ON r.entity_id = c.rid""").fetchall()
+                chunks = [rows[i : i + 50_000] for i in range(0, len(rows), 50_000)]
+                del rows
+                with mp.get_context("spawn").Pool(max(1, int(cfg.engine.workers))) as pool:
+                    lab = [r for part in pool.map(_selflabel_chunk, chunks) for r in part]
+                del chunks
+                sig[country] = learn_sigvocab([r[:5] for r in lab], int(cfg.engine.workers))
+                lo[country] = textdiff.learn_token_logodds([(r[5], r[6], r[4]) for r in lab])
+                stats[country] = {"split": split, "labelled": len(lab), "pos": sum(r[4] for r in lab),
+                                  "sig_tokens": sum(map(len, sig[country].values())), "lo_tokens": len(lo[country])}
+                log.info(kv(event="selfvocab", country=country, **stats[country]))
+    finally:
+        con.close()
+    (learned_dir(cfg) / "selfvocab.json").write_text(
+        json.dumps({"sig": sig, "lo": lo, "stats": stats}, ensure_ascii=False)
+    )
+    return stats
+
+
+def _selfvocab(cfg: Config) -> tuple[dict | None, dict | None]:
+    """(signature vocab, token log-odds) as per-country mappings for the feature workers, or (None, None)."""
+    from ber.features import BY_COUNTRY
+
+    p = learned_dir(cfg) / "selfvocab.json"
+    if not bool(cfg.get("features", {}).get("self_vocab", False)) or not p.exists():
+        return None, None
+    d = json.loads(p.read_text())
+    return {BY_COUNTRY: d["sig"]}, {BY_COUNTRY: d["lo"]}
+
+
 def _sigvocab(cfg: Config, name: str) -> dict | None:
     """Load a learned signature vocabulary, or None when it has not been learned yet."""
     p = learned_dir(cfg) / f"sigvocab_{name}.json"
@@ -407,6 +496,7 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
         _views(con, cfg, split)
         con.execute(f"CREATE OR REPLACE VIEW candidates AS SELECT * FROM read_parquet('{model_cand_path(cfg, split)}')")
         idf = name_idf(con)
+        self_sig, self_lo = _selfvocab(cfg)
         if split == "train":
             label = gt_sql(cfg)
             parts = []
@@ -423,8 +513,8 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
                         True,
                         buckets,
                         idf,
-                        _logodds(cfg, other_fold(fold)),
-                        _sigvocab(cfg, other_fold(fold)),
+                        self_lo or _logodds(cfg, other_fold(fold)),
+                        self_sig or _sigvocab(cfg, other_fold(fold)),
                     )
                 parts.append(p)
                 out[fold] = st["rows"]
@@ -448,15 +538,15 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
                         True,
                         buckets,
                         idf,
-                        _logodds(cfg, "fit"),
-                        _sigvocab(cfg, "fit"),
+                        self_lo or _logodds(cfg, "fit"),
+                        self_sig or _sigvocab(cfg, "fit"),
                     )
                 out[g] = st["rows"]
         else:
             with stage("features", split=split) as st:
                 st["rows"] = write_features(
-                    con, feat_path(cfg, split), None, rows, workers, None, False, buckets, idf, _logodds(cfg, "fit"),
-                    _sigvocab(cfg, "fit"),
+                    con, feat_path(cfg, split), None, rows, workers, None, False, buckets, idf,
+                    self_lo or _logodds(cfg, "fit"), self_sig or _sigvocab(cfg, "fit"),
                 )
             out["test"] = st["rows"]
         return out
@@ -722,11 +812,13 @@ def predict_stage(
             pair_shift = np.full(len(p), base)
             logit = lambda q: float(np.log(q / (1 - q)))  # noqa: E731
             groups = list(enumerate(countries)) if per_country else [(-1, "all")]
+            # D-025: no EM shift for a country unseen in training (measured harmful in the unseen-country simulation)
+            skip = set(cfg.get("decision", {}).get("shift_skip_countries", []))
             shifts: dict[str, Any] = {}
             for code, name in groups:
                 m = np.ones(len(p), dtype=bool) if code < 0 else cc == code
                 test_prior, _ = em_prior_shift(p_cal[is_best & m], train_prior)
-                delta = logit(test_prior) - logit(train_prior)
+                delta = 0.0 if name in skip else logit(test_prior) - logit(train_prior)
                 pair_shift[m] += delta
                 shifts[name] = {"test_prior_em": test_prior, "logit_delta": delta, "pairs": int(m.sum())}
             info.update(train_prior=train_prior, prior_shift_by_country=shifts)

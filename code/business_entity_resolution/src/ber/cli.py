@@ -182,6 +182,14 @@ def run_adapt(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def run_learn_selfvocab(args: argparse.Namespace, cfg: Config) -> int:
+    """Self-labelled per-country signature vocab + token log-odds (train countries from train, others from test)."""
+    from ber.pipeline import learn_selfvocab_stage
+
+    _emit(learn_selfvocab_stage(cfg), None)
+    return 0
+
+
 def add_split(p: argparse.ArgumentParser) -> None:
     """Arguments for stages that run per split."""
     p.add_argument("--split", choices=("train", "test"), required=True)
@@ -302,6 +310,8 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("predict", "predict test and write submission files", add_predict, run_predict),
     ("score", "macro F0.5 of a matching file against training GT", add_score, run_score),
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
+    ("learn-selfvocab", "self-labelled per-country vocabularies (no labels; unseen countries from test)", add_nothing,
+     run_learn_selfvocab),
     ("adapt", "adapt test features to an unseen country from rule-labelled test pairs", add_adapt, run_adapt),
     ("probe-empty-country", "leaderboard probe: empty one country's match lists in output/", add_probe, run_probe),
 ]

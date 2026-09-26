@@ -37,7 +37,9 @@ from ber.block3 import V3_CAND_COLS
 
 log = logging.getLogger(__name__)
 
-FEATURE_SET_VERSION = "v3"
+FEATURE_SET_VERSION = "v4"
+# key of a {country_norm: table} mapping for per-country (self-labelled) vocabularies (D-025)
+BY_COUNTRY = "__by_country__"
 
 PASS_FLAGS = [
     "in_tok",
@@ -192,6 +194,7 @@ def bucket_frame_sql(
       WHERE {keep})
     SELECT c.lid, c.rid, {in_group} AS in_group,
       {strings},
+      {_norm_col(norm_cols, 'l', 'country_norm')} AS l_country,
       {flags},
       {blocks},
       c.r_n_cand, c.r_rank, c.r_gap, x.l_n_cand, x.l_rank, x.l_gap,
@@ -272,6 +275,23 @@ def _init_worker(
     _IDF, _LOGODDS, _SIGVOCAB = idf, logodds, sigvocab
 
 
+def _per_country(vocab, countries: list[str] | None, n: int, compute) -> dict[str, np.ndarray]:
+    """Run ``compute(idx, table)`` once per country group when ``vocab`` is a {BY_COUNTRY: {country: table}} mapping
+    (each pair uses its own country's table, None for an unknown country) and scatter the results into row order;
+    otherwise one call with the plain table."""
+    by = vocab.get(BY_COUNTRY) if isinstance(vocab, Mapping) else None
+    if by is None or countries is None:
+        return compute(np.arange(n), vocab)
+    out: dict[str, np.ndarray] = {}
+    arr = np.asarray(countries, dtype=object)
+    for c in set(countries):
+        idx = np.flatnonzero(arr == c)
+        part = compute(idx, by.get(c))
+        for k, v in part.items():
+            out.setdefault(k, np.zeros(n, dtype=np.float32))[idx] = np.asarray(v, dtype=np.float32)
+    return out
+
+
 def python_features(batch: pa.RecordBatch) -> dict[str, np.ndarray]:
     """Compute rapidfuzz string features and text-difference features for one batch of joined pairs."""
     col = {f"{s}_{c}": batch.column(f"{s}_{c}").to_pylist() for s in ("l", "r") for c in STRING_COLS}
@@ -305,15 +325,17 @@ def python_features(batch: pa.RecordBatch) -> dict[str, np.ndarray]:
         dtype=np.int8,
         count=batch.num_rows,
     )
-    f.update(textdiff.name_diff_features(col["l_name_core"], col["r_name_core"], _IDF, _LOGODDS))
+    n = batch.num_rows
+    countries = batch.column("l_country").to_pylist() if "l_country" in batch.schema.names else None
+    lc, rc = col["l_name_core"], col["r_name_core"]
+    f.update(_per_country(_LOGODDS, countries, n, lambda idx, lo: textdiff.name_diff_features(
+        [lc[i] for i in idx], [rc[i] for i in idx], _IDF, lo)))
     houses_l = [h or n for h, n in zip(col["l_addr_house"], col["l_addr_nums"], strict=True)]
     houses_r = [h or n for h, n in zip(col["r_addr_house"], col["r_addr_nums"], strict=True)]
     f.update(textdiff.number_relation_features(houses_l, houses_r))
-    f.update(
-        signature.signature_features(
-            col["l_name_norm"], col["l_addr_norm"], col["r_name_norm"], col["r_addr_norm"], _SIGVOCAB
-        )
-    )
+    ln, la, rn, ra = col["l_name_norm"], col["l_addr_norm"], col["r_name_norm"], col["r_addr_norm"]
+    f.update(_per_country(_SIGVOCAB, countries, n, lambda idx, voc: signature.signature_features(
+        [ln[i] for i in idx], [la[i] for i in idx], [rn[i] for i in idx], [ra[i] for i in idx], voc)))
     return f
 
 

@@ -38,6 +38,7 @@ blocking:                      # v2 (DESIGN_V2 §S2, D-006)
 
 features:
   buckets: 16                  # right-id hash buckets for the feature pass (D-019)
+  self_vocab: true             # D-025: self-labelled per-country vocabularies (learned/selfvocab.json) when present
 
 model:                         # LightGBM for stage 1 and stage 2 (D-007, D-008)
   rounds: 5000                 # upper bound; early stopping on the tune group decides
@@ -46,3 +47,4 @@ model:                         # LightGBM for stage 1 and stage 2 (D-007, D-008)
 
 decision:
   per_country_shift: true      # D-023: EM prior shift per test country instead of one pooled shift
+  shift_skip_countries: [France]   # D-025: no EM shift for a country unseen in training
