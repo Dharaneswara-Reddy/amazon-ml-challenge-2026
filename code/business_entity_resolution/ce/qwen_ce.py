@@ -1,7 +1,7 @@
 """LLM pair classifier (D-028): Qwen/Qwen2.5-1.5B-Instruct (Apache-2.0, 1.54B params) + LoRA, fine-tuned only on the
 provided train data (bundle train.parquet), run locally on one GPU (no hosted API). Scores score_{holdout,tune,test}.
 
-Setup on the GPU box (Lightning AI L4 / Kaggle T4):  pip install -U "transformers<5" peft pandas pyarrow
+Setup on the GPU box (Kaggle T4 x2 / Colab T4 / any CUDA GPU):  pip install -U "transformers<5" peft pandas pyarrow
 Run:  python qwen_ce.py --bundle ./ber_ce --out ./out [--train-minutes 110] [--max-train 300000]
 Writes out/ce_<group>.parquet (lid, rid, ce logit) group by group, so a cut-off session keeps finished groups.
 """
@@ -57,6 +57,9 @@ def main() -> None:
             p.requires_grad = True
             p.data = p.data.float()
     model.print_trainable_parameters()
+    # both GPUs (Kaggle T4 x2): each batch is split across devices
+    net = torch.nn.DataParallel(model) if dev == "cuda" and torch.cuda.device_count() > 1 else model
+    print("gpus", torch.cuda.device_count() if dev == "cuda" else 0, flush=True)
 
     def enc(a, b):
         """Tokenize prompt-formatted pairs."""
@@ -78,7 +81,7 @@ def main() -> None:
     for s in range(steps):
         j = np.arange(s * args.bs, min((s + 1) * args.bs, len(tr)))
         with torch.autocast(dev, dtype=dtype, enabled=dev == "cuda"):
-            logit = model(**enc(tr.ta.values[j].tolist(), tr.tb.values[j].tolist())).logits.squeeze(-1)
+            logit = net(**enc(tr.ta.values[j].tolist(), tr.tb.values[j].tolist())).logits.squeeze(-1)
         loss = torch.nn.functional.binary_cross_entropy_with_logits(logit.float(), y[j].to(dev))
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
@@ -95,7 +98,7 @@ def main() -> None:
             print(f"time guard: stop at step {s + 1}/{steps}", flush=True)
             break
 
-    model.eval()
+    net.eval()
 
     def score(df: pd.DataFrame, bs: int = 256) -> np.ndarray:
         """Logits for all pairs of df (length-sorted batches)."""
@@ -105,7 +108,7 @@ def main() -> None:
         with torch.inference_mode(), torch.autocast(dev, dtype=dtype, enabled=dev == "cuda"):
             for i in range(0, len(df), bs):
                 j = order[i:i + bs]
-                out[j] = model(**enc(df.ta.values[j].tolist(), df.tb.values[j].tolist())).logits.squeeze(-1).float().cpu().numpy()
+                out[j] = net(**enc(df.ta.values[j].tolist(), df.tb.values[j].tolist())).logits.squeeze(-1).float().cpu().numpy()
                 if (i // bs) % 200 == 0:
                     el = time.time() - t1
                     print(f"  {i}/{len(df)} {el / 60:.1f} min, eta {el / (i + bs) * (len(df) - i - bs) / 60:.1f} min", flush=True)
