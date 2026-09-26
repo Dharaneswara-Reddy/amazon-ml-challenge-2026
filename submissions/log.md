@@ -6,3 +6,4 @@ Max 5 per day. One row per leaderboard upload; the folder holds the exact files 
 |---|------------|--------|------------|------------|-------------|--------|--------------------|
 | 01 | 20260925-1157 | `submissions/01_20260925-1157` | `3b1b9a2` | 0.8075 | 0.749 | SCORED | rule baseline: best block_score candidate per record, threshold tuned on train |
 | 02 | 20260926-0046 | `submissions/02_20260926-0046` | `fc7aa50` | 0.9715 | 0.961 | SCORED | v2: blocking v2 + features v2 + stage 2 + tune-chosen decision + prior shift |
+| 03 | 20260926-0924 | `submissions/03_20260926-0924` | `475357f` | 0.9876 | | pending | v3: blocking v3 (compound keys + learned cut) + signature features + per-country prior shift + lr 0.2 |
