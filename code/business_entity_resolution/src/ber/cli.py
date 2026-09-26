@@ -133,7 +133,7 @@ def run_validate_output(args: argparse.Namespace, cfg: Config) -> int:
 
 def add_probe(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber probe-empty-country``."""
-    p.add_argument("--country", required=True, help="country whose Source 1 rows get an empty match list, e.g. France")
+    p.add_argument("--country", required=True, help="country whose Source 1 rows get an empty match list, or ALL")
 
 
 def run_probe(args: argparse.Namespace, cfg: Config) -> int:
@@ -151,11 +151,11 @@ def run_probe(args: argparse.Namespace, cfg: Config) -> int:
     s1 = io.raw_parquet_path(cfg, "test", 1)
     rows = con.execute(
         f"""SELECT m.source1_entity_id,
-                   CASE WHEN s.country = ? THEN '' ELSE m.matched_entity_ids END AS matched_entity_ids,
-                   s.country = ? AS emptied
+                   CASE WHEN s.country = ? OR ? = 'ALL' THEN '' ELSE m.matched_entity_ids END AS matched_entity_ids,
+                   (s.country = ? OR ? = 'ALL') AS emptied
             FROM read_csv('{out}', delim='\t', header=true, all_varchar=true) m
             LEFT JOIN read_parquet('{s1}') s ON s.entity_id = m.source1_entity_id""",
-        [args.country, args.country],
+        [args.country, args.country, args.country, args.country],
     ).fetchall()
     n_emptied = sum(1 for r in rows if r[2])
     tmp = out.with_suffix(".tmp")

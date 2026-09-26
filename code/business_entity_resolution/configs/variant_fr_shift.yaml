@@ -1,0 +1,7 @@
+# Variant: re-enable the per-country EM prior shift for France (D-025 turned it off); predict-time only.
+# Includes the big-memory predict engine settings (results unaffected by engine settings).
+engine:
+  duckdb_memory_limit: 9GB
+  duckdb_threads: 6
+decision:
+  shift_skip_countries: []

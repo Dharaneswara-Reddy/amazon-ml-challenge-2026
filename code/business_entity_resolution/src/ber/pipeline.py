@@ -768,6 +768,8 @@ def predict_stage(
     adapted: score feat_<v>_test_adapted.parquet (from adapt_stage) and keep its predictions in run_dir/adapted/.
     """
     params = json.loads((run_dir / "decision_params.json").read_text())
+    # optional decision knobs from config (e.g. empty_weight, rule): variants of a trained run without retraining
+    params.update(dict(cfg.get("decision", {}).get("params_override", {}) or {}))
     manifest = json.loads((run_dir / "manifest.json").read_text())
     b1 = lgb.Booster(model_file=str(run_dir / "model1.txt"))
     b2 = lgb.Booster(model_file=str(run_dir / "model2.txt"))
