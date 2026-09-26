@@ -1,0 +1,9 @@
+[NOADMIN] train rows 1,889,317 valid 899,381 feats 145  load 34s
+[NOADMIN] best_iter 334 valid logloss 0.02043  230s
+[NOADMIN] scored  457s
+[NOADMIN] HOLDOUT rule=expected_f F0.5=0.98590  india=0.98390(n=44,353)  us=0.98725(n=66,096)  namefreq>=50=0.97856(n=19,531)  namefreq>=200=0.98306(n=3,620)
+[NOADMIN] holdout by rule: {"threshold": 0.985716083529068, "expected_f_pure": 0.9856047042370015, "expected_f_model": 0.985799462112693, "expected_f": 0.98590335514288}
+[NOADMIN] FRANCE expF0.5(model)=0.9727 matches/S1=3.427 empty=0.0512 +1/+2=675 -1/-2=458 genoff=356 added_vs6=17766 removed_vs6=12745
+[NOADMIN] France same-name cells accepted (street, city_eq, d==0, n): [('diff', 0, True, 14957), ('diff', 1, True, 8258), ('mid', 0, True, 307), ('mid', 1, True, 1039), ('same', 0, True, 103213), ('same', 1, True, 400968), ('diff', 0, False, 74), ('diff', 1, False, 30), ('mid', 0, False, 13), ('mid', 1, False, 31), ('same', 0, False, 554), ('same', 1, False, 1727)]
+[NOADMIN] France v4-rejected clean slice: n=14022 mean p=0.055 median p=0.0046 share p>=.5=0.025 accepted=78
+[NOADMIN] done 531s

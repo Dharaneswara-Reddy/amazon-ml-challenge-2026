@@ -1,0 +1,27 @@
+
+== train10: A(0)/mean A(base) = 1.610; A(1)/A(0)=0.939 A(-3)/A(0)=0.848 A(-10)/A(0)=0.696
+street city_eq    n(d=0)   true(d=0)  chance_est  est_true  est_true_share  (train: real true share)
+diff         0    34,559      27867        5725     28834          0.834   0.806
+diff         1    12,223      12191           8     12215          0.999   0.997
+mid          0     2,584       1755         891      1693          0.655   0.679
+mid          1     4,983       4968           3      4980          0.999   0.997
+same         0    47,755      47637          15     47740          1.000   0.998
+same         1   145,850     145763          36    145814          1.000   0.999
+
+== France: A(0)/mean A(base) = 1.697; A(1)/A(0)=0.981 A(-3)/A(0)=0.900 A(-10)/A(0)=0.686
+street city_eq    n(d=0)   true(d=0)  chance_est  est_true  est_true_share  (train: real true share)
+diff         0    54,905          -       33360     21545          0.392   -
+diff         1    37,005          -       27978      9027          0.244   -
+mid          0    36,619          -       33506      3113          0.085   -
+mid          1    56,131          -       62116     -5985         -0.107   -
+same         0   103,787          -         324    103463          0.997   -
+same         1   401,806          -         670    401136          0.998   -
+
+== US_test: A(0)/mean A(base) = 1.320; A(1)/A(0)=0.972 A(-3)/A(0)=0.921 A(-10)/A(0)=0.832
+street city_eq    n(d=0)   true(d=0)  chance_est  est_true  est_true_share  (train: real true share)
+diff         0     9,498          -        1543      7955          0.838   -
+diff         1     4,542          -           3      4539          0.999   -
+mid          0     1,698          -         418      1280          0.754   -
+mid          1     5,399          -           2      5397          1.000   -
+same         0    41,918          -          12     41906          1.000   -
+same         1   167,239          -          40    167199          1.000   -

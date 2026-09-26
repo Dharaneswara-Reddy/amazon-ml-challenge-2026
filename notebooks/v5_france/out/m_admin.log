@@ -1,0 +1,4 @@
+France sure-true pairs by admin_eq/admin_diff: n, accepted #6: [(0, 0, 259661, 259013), (0, 1, 119092, 118765), (1, 0, 126415, 126150)]
+France all pairs admin_diff share / accepted with admin_diff: [(0.1448115728204588, 198394)]
+examples: [('183 RUE des stations, Lille, Hauts-de-France', '183 Rue Des Stations, Lille, Nord', True), ('4 Rue Louis Berton, Mérignac, Nouvelle-Aquitaine', 'Gironde, (4) R. LOUIS BERON, MÉRIGNAC', True), ('Nouvelle-Aquitaine, Mérignac, 19 Rue Marcelin Berthelot', '19 R. MARCILIN BERTHELOT, MERIGNAC, Gironde', True), ("162 Rue d'Isly, Lille, Hauts-de-France", "Nord, 162 R. D'isly, Lille", True), ('31 Rue Gambetta, Dunkerque, Hauts-de-France', 'NO 31 RUE GAMBENTA, DUNKERQUE, Nord', True), ('43 Rue du Marais, Lille, Hauts-de-France', '43 RUE DU MARAIS, LILLE, Nord', True)]
+train holdout clean-number same-core pairs by admin_diff: n, true rate: [(0, 163017, 0.9981903727832067), (1, 3931, 0.9440345967947087)]

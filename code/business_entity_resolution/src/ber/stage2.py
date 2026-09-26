@@ -86,7 +86,53 @@ STAGE2_FEATURES = [
     "s2_l_n90_s2",
     "s2_l_n90_s3",
 ]
-MODEL2_FEATURES = FEATURES + STAGE2_FEATURES
+
+# Entity-level context from stage-1 scores (D-027; measured +0.0003 holdout, research_notes/v5/K_india_us.md T3):
+# the pair's standing among its S1 entity's candidates and its right record's alternatives.
+ENTITY_FEATURES = [
+    "e_l_n_best", "e_l_sum_best", "e_l_rank_best", "e_l_next_gap", "e_l_prev_gap", "e_l_n10", "e_l_n30",
+    "e_ls_rank", "e_ls_n50", "e_ls_max_other", "e_r_n", "e_r_second", "e_r_other_lgap", "e_r_other_ln50", "e_p_over_lmax",
+]
+
+
+def entity_sql(preds: str) -> str:
+    """SQL of (lid, rid, ENTITY_FEATURES) over a stage-1 prediction relation ``preds`` (lid, rid, p; all rows)."""
+    return f"""
+    WITH b AS (SELECT lid, rid, p::DOUBLE AS p, starts_with(rid, 'S3-') AS s3,
+                 row_number() OVER (PARTITION BY rid ORDER BY p DESC, lid) AS r_rn,
+                 count(*) OVER (PARTITION BY rid) AS r_n
+               FROM {preds}),
+    rt AS (SELECT rid, max(CASE WHEN r_rn = 1 THEN lid END) AS l1, max(CASE WHEN r_rn = 1 THEN p END) AS p1,
+                  max(CASE WHEN r_rn = 2 THEN lid END) AS l2, max(CASE WHEN r_rn = 2 THEN p END) AS p2
+           FROM b WHERE r_rn <= 2 GROUP BY rid),
+    lt AS (SELECT lid, max(p) AS lmax, sum((p >= 0.5)::INT) AS ln50 FROM b GROUP BY lid),
+    c AS (SELECT b.*, r_rn = 1 AS best,
+            sum(CASE WHEN r_rn = 1 THEN 1 ELSE 0 END) OVER wl AS n_best,
+            sum(CASE WHEN r_rn = 1 THEN p ELSE 0 END) OVER wl AS sum_best,
+            sum((p >= 0.1)::INT) OVER wl AS n10, sum((p >= 0.3)::INT) OVER wl AS n30,
+            lead(p) OVER (PARTITION BY lid ORDER BY p DESC, rid) AS nxt,
+            lag(p) OVER (PARTITION BY lid ORDER BY p DESC, rid) AS prv,
+            rank() OVER (PARTITION BY lid, s3 ORDER BY p DESC) AS ls_rank,
+            sum((p >= 0.5)::INT) OVER (PARTITION BY lid, s3) AS ls_n50,
+            max(p) OVER (PARTITION BY lid) AS lmax_all
+          FROM b WINDOW wl AS (PARTITION BY lid)),
+    bestp AS (SELECT lid, list(p) AS bp FROM c WHERE best GROUP BY lid),
+    ls2 AS (SELECT lid, s3, max(p) AS m1, arg_max(rid, p) AS a1 FROM c GROUP BY lid, s3)
+    SELECT c.lid, c.rid,
+      n_best::FLOAT AS e_l_n_best, sum_best::FLOAT AS e_l_sum_best,
+      (1 + len(list_filter(coalesce(bp, []), x -> x > c.p)))::FLOAT AS e_l_rank_best,
+      (c.p - coalesce(nxt, 0))::FLOAT AS e_l_next_gap, (coalesce(prv, c.p) - c.p)::FLOAT AS e_l_prev_gap,
+      n10::FLOAT AS e_l_n10, n30::FLOAT AS e_l_n30, ls_rank::FLOAT AS e_ls_rank, ls_n50::FLOAT AS e_ls_n50,
+      (CASE WHEN ls2.a1 = c.rid THEN -1 ELSE ls2.m1 END)::FLOAT AS e_ls_max_other,
+      r_n::FLOAT AS e_r_n,
+      (CASE WHEN best THEN coalesce(rt.p2, 0) ELSE rt.p1 END)::FLOAT AS e_r_second,
+      (CASE WHEN best THEN coalesce(l2t.lmax - rt.p2, -1) ELSE l1t.lmax - rt.p1 END)::FLOAT AS e_r_other_lgap,
+      (CASE WHEN best THEN coalesce(l2t.ln50, -1) ELSE l1t.ln50 END)::FLOAT AS e_r_other_ln50,
+      (c.p / greatest(lmax_all, 1e-9))::FLOAT AS e_p_over_lmax
+    FROM c JOIN rt ON rt.rid = c.rid LEFT JOIN lt l1t ON l1t.lid = rt.l1 LEFT JOIN lt l2t ON l2t.lid = rt.l2
+    LEFT JOIN bestp ON bestp.lid = c.lid JOIN ls2 ON ls2.lid = c.lid AND ls2.s3 = c.s3"""
+
+MODEL2_FEATURES = FEATURES + STAGE2_FEATURES + ENTITY_FEATURES
 
 TrainFn = Callable[..., Any]
 PredictFn = Callable[..., int]
@@ -233,11 +279,13 @@ def write_stage2_features(
                      SELECT c.lid, c.rid, c.p FROM read_parquet('{context_pred_path}') c
                      ANTI JOIN read_parquet('{pred_path}') q ON c.lid = q.lid AND c.rid = q.rid)"""
     cols = ", ".join(f"s.{c}" for c in STAGE2_FEATURES)
+    ecols = ", ".join(f"e.{c}" for c in ENTITY_FEATURES)
     con.execute(
         f"""COPY (
-              SELECT f.*, {cols}
+              SELECT f.*, {cols}, {ecols}
               FROM read_parquet('{feat_path}') f
               JOIN ({competition_sql(preds, mutual_k)}) s ON s.lid = f.lid AND s.rid = f.rid
+              JOIN ({entity_sql(preds)}) e ON e.lid = f.lid AND e.rid = f.rid
             ) TO '{out_path}' (FORMAT parquet, COMPRESSION zstd)"""
     )
     n_out = pq.ParquetFile(out_path).metadata.num_rows

@@ -1,0 +1,5 @@
+paths:
+  tmp_dir: artifacts/v5_tmp
+engine:
+  duckdb_memory_limit: 3GB
+  duckdb_threads: 5

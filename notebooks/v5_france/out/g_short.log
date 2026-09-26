@@ -1,0 +1,23 @@
+S2 test very-short names by country: [('france', 9748, 703378, 1.386), ('india', 74, 2312565, 0.003), ('us', 344, 1871330, 0.018)]
+S2 train very-short by country: [('india', 0.003), ('us', 0.021)]
+S3 test very-short names by country: [('france', 12182, 731615, 1.665), ('india', 7000, 2405000, 0.291), ('us', 728, 1945701, 0.037)]
+S3 train very-short by country: [('india', 0.369), ('us', 0.047)]
+France examples: []
+very-short rights: in candidates (by S1 country), accepted in #6: [('France', 21930, 16387), ('India', 7074, 6980), ('US', 1072, 1006)]
+very-short rights in France rejected clean slice (v4 p2<.1): [(0,)]
+very-short rights in France rejected clean slice (v4 p2<.1): [(0,)]
+('SP', '11 BIS RUE ALEXANDRE LHERMITE, La Teste-de-Buch, Nouvelle-Aquitaine', 'Site Parents', '11 bis Rue Alexandre Lhermite, La Teste-de-Buch, Nouvelle-Aquitaine', 1.0, True)
+('CP', '49 R. DES OLCVETTES, Nantes', 'CP Section', '12 RUE des Epinettes, Nantes, Pays de la Loire', 0.05900000035762787, False)
+('MA', '118 Rue Ma Campagne, Roubaix, Nord', 'Medef Amis SAS', '118 Rue ma Campagne, Hauts-de-France, Roubaix', 0.9110000133514404, True)
+('LC', '92 R. DE DOUAI, Lille, Hauts-de-France', 'Lille Club SCI', '92 Rue de Douai, Lille, Hauts-de-France', 0.8790000081062317, True)
+('LC', '# 13 Rue Aristide Briard, Tourcoing', 'Lart Club (France) SARL', '13 Rue Aristide Briand, Tourcoing, Hauts-de-France', 0.38999998569488525, False)
+('RR', "(51) R. D'AMIENS, Lille, Hauts-de-France", 'Representatif Residence (France) SAS', "51 Rue d'Amiens, Lille, Hauts-de-France", 0.9860000014305115, True)
+('LP', 'Rue Du Maréchal Foch, Lille, Nord', 'LPX Ecole', '209 Rue Nationale, Lille, Hauts-de-France', 0.0, False)
+('MG', '9 RUE CONSTANT CRONIE, Calais, Pas-de-Calais', 'Marche Groupement', '9 Rue Constant Cronie, Calais, Hauts-de-France', 0.9869999885559082, True)
+('UP', '167 R. Du Faubourg De Roubaix, Lille', 'Ur Primaire SA', '167 Rue du Faubourg de Roubaix, Lille, Hauts-de-France', 0.9990000128746033, True)
+('JE', '10 Rue des Ancolies, Saint-Herblain, Pays de la Loire', 'JR Ecole EURL', '10 Rue des Ancolies, Saint-Herblain, Pays de la Loire', 0.9950000047683716, True)
+('OJ', '385 A RUE DU CLINQUNT, Tourcoing', 'Caraibes Dejantes Logistique SARL', '385 Rue du Clinquet, Tourcoing, Hauts-de-France', 0.10700000077486038, False)
+('BE', '6 R. CHARLES DOMRECQ, Bordeaux', 'Buvette Comite', '6 Rue de la Vieille Tour, Bordeaux, Nouvelle-Aquitaine', 0.008999999612569809, False)
+('DC', '133 R. LAGRANGE, Bordeaux, Gironde', 'Dorganisation Compagnie SARL', 'Bordeaux, 133 Rue Lagrange, Nouvelle-Aquitaine', 0.8930000066757202, True)
+('SC', 'Pays de la Loire, 13 R Du Prinquiau, Nantes', 'Soliha Club SARL', '13 Rue du Prinquiau, Nantes, Pays de la Loire', 0.9900000095367432, True)
+France very-short rights: accepted best pair has initials of S1 name? share where name == initials of S1 words: [(16387, 0.11350460731067309)]

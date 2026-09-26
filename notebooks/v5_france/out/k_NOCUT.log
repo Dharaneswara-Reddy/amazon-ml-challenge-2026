@@ -1,0 +1,5 @@
+columns: n, sureTrue, sureFalse(off-offset), collision, +1/+2, -1/-2, genoff>=3, genword
+NOCUT vs BASE: ADDED   (9805, 186, 92, 439, 184, 41, 140, 70)
+NOCUT vs BASE: REMOVED (12848, 161, 82, 244, 294, 22, 142, 45)
+BASE vs 6: ADDED   (12716, 241, 77, 495, 264, 25, 122, 41)
+BASE vs 6: REMOVED (18832, 280, 221, 219, 530, 62, 251, 96)

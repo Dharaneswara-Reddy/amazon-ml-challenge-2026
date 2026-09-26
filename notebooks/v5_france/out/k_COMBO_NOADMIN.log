@@ -1,0 +1,5 @@
+columns: n, sureTrue, sureFalse(off-offset), collision, +1/+2, -1/-2, genoff>=3, genword
+COMBO vs BASE: ADDED   (58576, 505, 415, 6327, 408, 162, 313, 1125)
+COMBO vs BASE: REMOVED (3431, 54, 65, 45, 264, 17, 144, 14)
+NOADMIN vs BASE: ADDED   (16105, 350, 82, 220, 228, 29, 140, 33)
+NOADMIN vs BASE: REMOVED (4968, 58, 83, 345, 231, 21, 85, 42)

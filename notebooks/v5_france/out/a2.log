@@ -1,0 +1,108 @@
+
+### FR_vs_train: AUC 1.0000
+top gain: l_n_cand 0.194, sg_rtgt_lo_max 0.109, r_n_cand 0.106, admin_eq 0.106, sg_num_nl 0.066, jacc_addr 0.048, sg_del_lo_min 0.034, sg_a_del_lo_max 0.032, nd_l_logodds_max 0.030, s_phx 0.026, nd_l_logodds_sum 0.021, l_unit 0.019, nd_r_logodds_max 0.013, sg_repl_lo_max 0.012, sg_ins_lo_max 0.012, sg_edit_lo_max 0.012, addr_token_sort 0.010, l_name_freq 0.010, admin_diff 0.010, sg_l_ntok 0.010
+univariate |AUC-.5| (feat, auc, med_a, med_b, p90_a, p90_b):
+  l_n_cand               auc=0.864 med 24 vs 9  p90 75 vs 21
+  r_n_cand               auc=0.794 med 5 vs 2  p90 13 vs 5
+  admin_eq               auc=0.252 med 0 vs 1  p90 1 vs 1
+  l_rank                 auc=0.744 med 11 vs 5  p90 39 vs 12
+  r_rank                 auc=0.709 med 3 vs 1  p90 8 vs 4
+  lrank                  auc=0.701 med 3 vs 1  p90 9 vs 4
+  sg_a_del_lo_max        auc=0.315 med 0 vs 0  p90 0 vs 0.638
+  in_sn_addr_skel        auc=0.335 med 0 vs 0  p90 1 vs 1
+  in_sn_addr_name        auc=0.336 med 0 vs 0  p90 1 vs 1
+  s_hs                   auc=0.341 med 0 vs 12.7  p90 25.3 vs 69.5
+  sg_a_repl              auc=0.656 med 1 vs 0  p90 3 vs 2
+  sg_num_nl              auc=0.356 med 1 vs 1  p90 1 vs 3
+  r_gap                  auc=0.634 med 3.33 vs 0  p90 9.31 vs 8.98
+  nums_shared            auc=0.367 med 0 vs 1  p90 1 vs 2
+  sg_a_del               auc=0.630 med 1 vs 0  p90 3 vs 2
+  nums_conflict          auc=0.629 med 0 vs 0  p90 1 vs 1
+  sg_l_ntok              auc=0.374 med 3 vs 4  p90 4 vs 5
+  addr_token_sort        auc=0.375 med 0.745 vs 0.891  p90 0.98 vs 1
+  in_v2                  auc=0.376 med 1 vs 1  p90 1 vs 1
+  sg_num_nr              auc=0.378 med 1 vs 1  p90 1 vs 3
+  addr_token_set         auc=0.378 med 0.871 vs 0.956  p90 1 vs 1
+  jw_addr                auc=0.379 med 0.781 vs 0.923  p90 1 vs 1
+  sg_num_eq              auc=0.380 med 0 vs 1  p90 1 vs 2
+  in_hs                  auc=0.383 med 0 vs 1  p90 1 vs 1
+  s_na                   auc=0.385 med 0 vs 13.9  p90 67.7 vs 125
+  jacc_addr              auc=0.388 med 0.556 vs 0.714  p90 0.833 vs 1
+  tok_jacc_addr          auc=0.388 med 0.556 vs 0.714  p90 0.833 vs 1
+  block_score            auc=0.391 med -3.39 vs -1.83  p90 1.99 vs 5.58
+  s_px                   auc=0.391 med 0 vs 13.5  p90 51.6 vs 84.4
+  n_pass_new             auc=0.392 med 1 vs 2  p90 4 vs 5
+
+### FR_vs_INUS_test: AUC 1.0000
+top gain: l_n_cand 0.193, admin_eq 0.117, r_n_cand 0.103, sg_rtgt_lo_max 0.100, sg_num_nl 0.077, nd_r_logodds_max 0.038, sg_a_del_lo_max 0.036, jacc_addr 0.028, nd_l_logodds_max 0.026, l_unit 0.023, sg_del_lo_min 0.023, sg_edit_lo_max 0.019, admin_diff 0.015, sg_l_ntok 0.013, sg_ins_lo_max 0.012, street_token_set 0.012, nd_l_logodds_sum 0.012, sg_num_nr 0.011, sg_repl_lo_max 0.010, city_eq 0.010
+univariate |AUC-.5| (feat, auc, med_a, med_b, p90_a, p90_b):
+  l_n_cand               auc=0.844 med 24 vs 10  p90 75 vs 22
+  r_n_cand               auc=0.822 med 5 vs 2  p90 13 vs 5
+  admin_eq               auc=0.248 med 0 vs 1  p90 1 vs 1
+  r_rank                 auc=0.733 med 3 vs 1  p90 8 vs 3
+  lrank                  auc=0.725 med 3 vs 1  p90 9 vs 4
+  l_rank                 auc=0.724 med 11 vs 5  p90 39 vs 13
+  sg_a_del_lo_max        auc=0.300 med 0 vs 0  p90 0 vs 0.658
+  r_gap                  auc=0.673 med 3.33 vs 0  p90 9.31 vs 8.18
+  in_sn_addr_skel        auc=0.330 med 0 vs 0  p90 1 vs 1
+  in_sn_addr_name        auc=0.331 med 0 vs 0  p90 1 vs 1
+  sg_num_nl              auc=0.333 med 1 vs 1  p90 1 vs 3
+  sg_num_nr              auc=0.340 med 1 vs 1  p90 1 vs 3
+  sg_l_ntok              auc=0.350 med 3 vs 4  p90 4 vs 5
+  sg_a_repl              auc=0.646 med 1 vs 0  p90 3 vs 2
+  s_na                   auc=0.354 med 0 vs 26.9  p90 67.7 vs 140
+  s_hs                   auc=0.356 med 0 vs 0  p90 25.3 vs 80.8
+  in_v2                  auc=0.366 med 1 vs 1  p90 1 vs 1
+  s_px                   auc=0.369 med 0 vs 23.8  p90 51.6 vs 98.8
+  nums_shared            auc=0.369 med 0 vs 1  p90 1 vs 2
+  n_pass_new             auc=0.374 med 1 vs 2  p90 4 vs 5
+  r_same_name_cands      auc=0.624 med 1 vs 1  p90 6 vs 2
+  tok_score              auc=0.377 med 0 vs 0  p90 13.3 vs 32.7
+  addr_token_set         auc=0.378 med 0.871 vs 0.955  p90 1 vs 1
+  sg_num_eq              auc=0.378 med 0 vs 1  p90 1 vs 2
+  sg_r_ntok              auc=0.379 med 3 vs 4  p90 4 vs 5
+  block_score            auc=0.381 med -3.39 vs -1.56  p90 1.99 vs 5.37
+  l_unit                 auc=0.385 med 0 vs 0  p90 0 vs 1
+  addr_token_sort        auc=0.385 med 0.745 vs 0.886  p90 0.98 vs 1
+  in_tok                 auc=0.385 med 0 vs 0  p90 1 vs 1
+  nums_conflict          auc=0.613 med 0 vs 0  p90 1 vs 1
+
+### INUS_test_vs_train: AUC 0.9653
+top gain: s_phx 0.387, nd_r_unexp_idf 0.125, s_n2 0.094, l_name_freq 0.071, s_px 0.061, nd_l_unexp_idf 0.037, s_hs 0.030, r_core_l_freq 0.029, r_name_freq 0.022, nd_r_unexplained 0.018, nd_r_logodds_max 0.016, l_n_cand 0.015, r_n_cand 0.011, nd_l_logodds_max 0.008, tok_score 0.006, sg_del_lo_min 0.005, sg_edit_lo_max 0.005, nd_l_logodds_sum 0.005, nd_l_ntok 0.005, s_na 0.004
+univariate |AUC-.5| (feat, auc, med_a, med_b, p90_a, p90_b):
+  l_n_cand               auc=0.551 med 10 vs 9  p90 22 vs 21
+  r_n_cand               auc=0.453 med 2 vs 2  p90 5 vs 5
+  sg_first_off_idx       auc=0.541 med -1 vs -1  p90 0 vs 0
+  sg_first_off           auc=0.540 med -9e+09 vs -9e+09  p90 17 vs 13
+  sg_r_ntok              auc=0.539 med 4 vs 4  p90 5 vs 5
+  sg_num_changed         auc=0.539 med 0 vs 0  p90 1 vs 1
+  tok_score              auc=0.539 med 0 vs 0  p90 32.7 vs 25.3
+  sg_edit_lo_max         auc=0.538 med 0.641 vs 0  p90 5.45 vs 4.44
+  city_eq                auc=0.462 med 0 vs 0  p90 1 vs 1
+  sg_num_nr              auc=0.536 med 1 vs 1  p90 3 vs 3
+  in_tok                 auc=0.536 med 0 vs 0  p90 1 vs 1
+  sg_off_in_s            auc=0.535 med 0 vs 0  p90 1 vs 0
+  nd_r_logodds_max       auc=0.535 med 0 vs 0  p90 2.26 vs 2.12
+  sg_sole_off_in_s       auc=0.534 med 0 vs 0  p90 1 vs 0
+  nd_l_ntok              auc=0.467 med 2 vs 2  p90 4 vs 4
+  sg_a_del               auc=0.533 med 0 vs 0  p90 4 vs 2
+  r_gap                  auc=0.467 med 0 vs 0  p90 8.18 vs 8.98
+  street_token_set       auc=0.469 med 0.75 vs 1  p90 1 vs 1
+  l_rank                 auc=0.531 med 5 vs 5  p90 13 vs 12
+  s_na                   auc=0.531 med 26.9 vs 13.9  p90 140 vs 125
+  lrank                  auc=0.470 med 1 vs 1  p90 4 vs 4
+  nd_r_logodds_sum       auc=0.530 med 0 vs 0  p90 3.14 vs 2.85
+  r_rank                 auc=0.470 med 1 vs 1  p90 3 vs 4
+  r_core_l_freq          auc=0.471 med 1 vs 1  p90 49 vs 56
+  r_same_name_cands      auc=0.472 med 1 vs 1  p90 2 vs 2
+  sg_num_nl              auc=0.528 med 1 vs 1  p90 3 vs 3
+  sg_ins_lo_max          auc=0.527 med 0 vs 0  p90 5 vs 1.51
+  sg_ins_lo_sum          auc=0.527 med 0 vs 0  p90 5.15 vs 2.01
+  nr_first_eq            auc=0.473 med 0 vs 0  p90 1 vs 1
+  sg_n_common            auc=0.526 med 2 vs 2  p90 4 vs 4
+
+FR_vs_train after dropping top-5 gain features: AUC 0.9999; next: sg_a_del_lo_max 0.109, sg_repl_lo_max 0.100, sg_num_nr 0.098, l_rank 0.066, nd_l_logodds_max 0.064, s_phx 0.061, sg_del_lo_min 0.058, nd_r_logodds_max 0.043
+
+FR_vs_train after dropping top-10 gain features: AUC 0.9997; next: l_rank 0.129, sg_repl_lo_max 0.126, sg_num_nr 0.103, nd_r_logodds_max 0.062, nd_l_logodds_sum 0.060, l_unit 0.049, s_hs 0.037, street_token_set 0.031
+
+FR_vs_train after dropping top-20 gain features: AUC 0.9994; next: sg_num_nr 0.138, sg_repl_lo_sum 0.112, l_rank 0.105, nd_r_logodds_sum 0.077, s_hs 0.044, street_token_set 0.041, sg_num_l_only 0.037, sg_ins_lo_sum 0.035

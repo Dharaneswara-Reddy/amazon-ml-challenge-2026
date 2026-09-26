@@ -1,0 +1,11 @@
+/home/toji339/Documents/Amazon_ML_Hackathon/notebooks/v5_france/e_proxy.py:59: DeprecationWarning: fetch_record_batch() is deprecated, use to_arrow_reader() instead.
+  rdr = c.execute(sql).fetch_record_batch(n)
+[NOCUT] train rows 1,889,317 valid 899,381 feats 146  load 21s
+[NOCUT] best_iter 284 valid logloss 0.02026  181s
+[NOCUT] scored  331s
+[NOCUT] HOLDOUT rule=expected_f F0.5=0.98580  india=0.98375(n=44,353)  us=0.98717(n=66,096)  namefreq>=50=0.97851(n=19,531)  namefreq>=200=0.98297(n=3,620)
+[NOCUT] holdout by rule: {"threshold": 0.9856694948317033, "expected_f_pure": 0.9855278444593807, "expected_f_model": 0.9857978141048483, "expected_f": 0.9857978141048483}
+[NOCUT] FRANCE expF0.5(model)=0.9712 matches/S1=3.372 empty=0.0538 +1/+2=568 -1/-2=469 genoff=299 added_vs6=12886 removed_vs6=22045
+[NOCUT] France same-name cells accepted (street, city_eq, d==0, n): [('diff', 0, True, 14943), ('diff', 1, True, 8268), ('mid', 0, True, 345), ('mid', 1, True, 1325), ('same', 0, True, 103137), ('same', 1, True, 400777), ('diff', 0, False, 67), ('diff', 1, False, 30), ('mid', 0, False, 12), ('mid', 1, False, 33), ('same', 0, False, 562), ('same', 1, False, 1736)]
+[NOCUT] France v4-rejected clean slice: n=14022 mean p=0.075 median p=0.0061 share p>=.5=0.045 accepted=164
+[NOCUT] done 414s

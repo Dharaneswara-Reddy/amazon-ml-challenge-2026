@@ -1,0 +1,16 @@
+
+== France: cell, n(d=0), in candidates, accepted #6, p2>=.5, est. true, accepted - est.true (FP lower bound)
+  diff  city_eq=0  n=  54,905  cand=  37,033  accepted=  14,928  p>=.5=  14,982  est_true=    21545  excess=   -6617
+  diff  city_eq=1  n=  37,005  cand=  25,008  accepted=   8,234  p>=.5=   8,268  est_true=     9027  excess=    -793
+  mid   city_eq=0  n=  36,619  cand=  22,742  accepted=     307  p>=.5=     408  est_true=     3113  excess=   -2806
+  mid   city_eq=1  n=  56,131  cand=  37,494  accepted=     941  p>=.5=   1,250  est_true=    -5985  excess=    6926
+  same  city_eq=0  n= 103,787  cand= 103,598  accepted= 103,143  p>=.5= 103,194  est_true=   103463  excess=    -320
+  same  city_eq=1  n= 401,806  cand= 401,570  accepted= 400,785  p>=.5= 400,929  est_true=   401136  excess=    -351
+
+== US_test: cell, n(d=0), in candidates, accepted #6, p2>=.5, est. true, accepted - est.true (FP lower bound)
+  diff  city_eq=0  n=   9,498  cand=   9,280  accepted=   7,947  p>=.5=   7,949  est_true=     7955  excess=      -8
+  diff  city_eq=1  n=   4,542  cand=   4,542  accepted=   4,539  p>=.5=   4,539  est_true=     4539  excess=      -0
+  mid   city_eq=0  n=   1,698  cand=   1,654  accepted=   1,307  p>=.5=   1,309  est_true=     1280  excess=      27
+  mid   city_eq=1  n=   5,399  cand=   5,396  accepted=   5,390  p>=.5=   5,390  est_true=     5397  excess=      -7
+  same  city_eq=0  n=  41,918  cand=  41,918  accepted=  41,909  p>=.5=  41,911  est_true=    41906  excess=       3
+  same  city_eq=1  n= 167,239  cand= 167,239  accepted= 167,195  p>=.5= 167,197  est_true=   167199  excess=      -4

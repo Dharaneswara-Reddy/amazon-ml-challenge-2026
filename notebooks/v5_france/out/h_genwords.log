@@ -1,0 +1,13 @@
+[('France', False, False, 934934, 286561), ('France', False, True, 684473, 168096), ('France', True, False, 84430, 1362), ('France', True, True, 796626, 18548), ('India', False, False, 3166593, 515173), ('India', False, True, 429238, 36804), ('India', True, False, 1007349, 8353), ('India', True, True, 1677117, 14283), ('US', False, False, 2423870, 427401), ('US', False, True, 362383, 44732), ('US', True, False, 735226, 5677), ('US', True, True, 1497909, 12016)]
+France accepted, per inserted word (numeq / not numeq):
+  groupe (32439, 46100, 26098, 45663) (6341,)
+  holding (17895, 38669, 17851, 38651) (44,)
+  developpement (29486, 42377, 23669, 42002) (5817,)
+  participations (19295, 37400, 19271, 37394) (24,)
+  france (58919, 52662, 52646, 52143) (6273,)
+  distribution (18555, 37433, 18530, 37431) (25,)
+  international (19193, 36793, 19167, 36788) (26,)
+  snc (8818, 20101, 8816, 20099) (2,)
+  sarl (107331, 95605, 99886, 94481) (7445,)
+  sas (90824, 84155, 83280, 83087) (7544,)
+  sci (35631, 41185, 28165, 40150) (7466,)

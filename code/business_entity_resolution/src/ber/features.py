@@ -37,7 +37,7 @@ from ber.block3 import V3_CAND_COLS
 
 log = logging.getLogger(__name__)
 
-FEATURE_SET_VERSION = "v4"
+FEATURE_SET_VERSION = "v5"
 # key of a {country_norm: table} mapping for per-country (self-labelled) vocabularies (D-025)
 BY_COUNTRY = "__by_country__"
 
@@ -72,8 +72,6 @@ SQL_OTHER = [
     "type_jacc",
     "type_diff",
     "city_eq",
-    "admin_eq",
-    "admin_diff",
     "l_unit",
     "r_unit",
 ]
@@ -102,6 +100,8 @@ PY_STRING = [
     "nums_shared",
     "nums_conflict",
     "first_tok_eq",
+    "r_is_l_initials",
+    "l_is_r_initials",
 ]
 TEXTDIFF_NAME = list(textdiff.name_diff_features([], [], None, None).keys())
 TEXTDIFF_NUM = list(textdiff.number_relation_features([], []).keys())
@@ -248,6 +248,17 @@ def _postal_state(a: list[str], b: list[str]) -> np.ndarray:
     )
 
 
+def _initials(a: list[str], b: list[str]) -> np.ndarray:
+    """1 where b (spaces removed, 2-6 chars) equals the initials of a's words ("lc" for "lille club"; D-027)."""
+    out = np.zeros(len(a), dtype=np.int8)
+    for i, (x, y) in enumerate(zip(a, b, strict=True)):
+        y = (y or "").replace(" ", "")
+        if 2 <= len(y) <= 6:
+            words = (x or "").split()
+            out[i] = len(words) == len(y) and "".join(w[0] for w in words) == y
+    return out
+
+
 def _nums(a: list[str], b: list[str]) -> tuple[np.ndarray, np.ndarray]:
     """Count shared house/unit numbers and flag pairs where both sides have numbers but share none."""
     shared = np.zeros(len(a), dtype=np.int8)
@@ -317,6 +328,8 @@ def python_features(batch: pa.RecordBatch) -> dict[str, np.ndarray]:
     f = {name: _cp(col[f"l_{c}"], col[f"r_{c}"], scorer) for name, (c, scorer) in pairs.items()}
     f["postal_state"] = _postal_state(col["l_postal"], col["r_postal"])
     f["nums_shared"], f["nums_conflict"] = _nums(col["l_addr_nums"], col["r_addr_nums"])
+    f["r_is_l_initials"] = _initials(col["l_name_core"], col["r_name_core"])
+    f["l_is_r_initials"] = _initials(col["r_name_core"], col["l_name_core"])
     f["first_tok_eq"] = np.fromiter(
         (
             (x.split(" ", 1)[0] == y.split(" ", 1)[0]) if x and y else False

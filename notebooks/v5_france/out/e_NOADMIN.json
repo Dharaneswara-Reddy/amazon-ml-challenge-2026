@@ -1,0 +1,122 @@
+{
+ "arm": "NOADMIN",
+ "rule": "expected_f",
+ "holdout": {
+  "threshold": 0.985716083529068,
+  "expected_f_pure": 0.9856047042370015,
+  "expected_f_model": 0.985799462112693,
+  "expected_f": 0.98590335514288
+ },
+ "tune_half_b": {
+  "threshold": 0.9857791963316026,
+  "expected_f_pure": 0.985223811058712,
+  "expected_f_model": 0.9858387102726119,
+  "expected_f": 0.9858387102726119
+ },
+ "holdout_decided": 0.98590335514288,
+ "holdout_india": [
+  0.9838961035410894,
+  44353
+ ],
+ "holdout_us": [
+  0.987250299440481,
+  66096
+ ],
+ "holdout_namefreq>=50": [
+  0.9785619893701881,
+  19531
+ ],
+ "holdout_namefreq>=200": [
+  0.9830627585393781,
+  3620
+ ],
+ "france_expected_f05": 0.9727467242006497,
+ "france_matches_per_s1": 3.427096341519819,
+ "france_empty_share": 0.05116167923161119,
+ "france_p12": 675,
+ "france_m12": 458,
+ "france_genoff": 356,
+ "france_added_vs6": 17766,
+ "france_removed_vs6": 12745,
+ "france_cells": [
+  [
+   "diff",
+   0,
+   true,
+   14957
+  ],
+  [
+   "diff",
+   1,
+   true,
+   8258
+  ],
+  [
+   "mid",
+   0,
+   true,
+   307
+  ],
+  [
+   "mid",
+   1,
+   true,
+   1039
+  ],
+  [
+   "same",
+   0,
+   true,
+   103213
+  ],
+  [
+   "same",
+   1,
+   true,
+   400968
+  ],
+  [
+   "diff",
+   0,
+   false,
+   74
+  ],
+  [
+   "diff",
+   1,
+   false,
+   30
+  ],
+  [
+   "mid",
+   0,
+   false,
+   13
+  ],
+  [
+   "mid",
+   1,
+   false,
+   31
+  ],
+  [
+   "same",
+   0,
+   false,
+   554
+  ],
+  [
+   "same",
+   1,
+   false,
+   1727
+  ]
+ ],
+ "france_rejslice": [
+  14022,
+  0.0546300583671402,
+  0.004594652913510799,
+  0.025388674939380972,
+  78
+ ]
+}
