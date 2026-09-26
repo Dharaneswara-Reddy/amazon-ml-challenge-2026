@@ -1,0 +1,4 @@
+# Engine override for running next to other memory-heavy jobs on the 15 GB laptop (results are unaffected).
+engine:
+  duckdb_memory_limit: 3GB
+  workers: 3
