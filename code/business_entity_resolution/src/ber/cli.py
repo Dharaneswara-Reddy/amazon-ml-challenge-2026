@@ -190,6 +190,14 @@ def run_learn_selfvocab(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def run_pseudo(args: argparse.Namespace, cfg: Config) -> int:
+    """Pseudo-labelled training rows for an unseen test country from a run's test predictions."""
+    from ber.pipeline import pseudo_stage
+
+    _emit(pseudo_stage(cfg, args.run, args.country), None)
+    return 0
+
+
 def add_split(p: argparse.ArgumentParser) -> None:
     """Arguments for stages that run per split."""
     p.add_argument("--split", choices=("train", "test"), required=True)
@@ -271,13 +279,14 @@ def add_train(p: argparse.ArgumentParser) -> None:
     """Arguments for ``ber train``."""
     p.add_argument("--name", default="v2", help="run name suffix")
     p.add_argument("--resume", type=Path, default=None, help="earlier run dir: reuse its finished models/predictions")
+    p.add_argument("--extra-fit", type=Path, default=None, help="extra labelled feature rows for the stage-1 model")
 
 
 def run_train(args: argparse.Namespace, cfg: Config) -> int:
     """Train stage 1 + stage 2, choose the decision rule on tune, score the holdout; print the run dir."""
     from ber.pipeline import train_stage
 
-    _emit({"run_dir": str(train_stage(cfg, args.name, args.resume))}, None)
+    _emit({"run_dir": str(train_stage(cfg, args.name, args.resume, args.extra_fit))}, None)
     return 0
 
 
@@ -312,6 +321,8 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("validate-output", "run the official submission validator", add_validate_output, run_validate_output),
     ("learn-selfvocab", "self-labelled per-country vocabularies (no labels; unseen countries from test)", add_nothing,
      run_learn_selfvocab),
+    ("pseudo", "pseudo-labelled training rows for an unseen country from a run's test predictions", add_adapt,
+     run_pseudo),
     ("adapt", "adapt test features to an unseen country from rule-labelled test pairs", add_adapt, run_adapt),
     ("probe-empty-country", "leaderboard probe: empty one country's match lists in output/", add_probe, run_probe),
 ]

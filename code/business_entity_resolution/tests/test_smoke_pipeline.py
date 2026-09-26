@@ -17,6 +17,7 @@ from ber.pipeline import (
     learn_maps_stage,
     normalize_stage,
     predict_stage,
+    pseudo_stage,
     train_stage,
 )
 
@@ -130,6 +131,9 @@ def test_pipeline_end_to_end_passes_official_validator(tmp_path: Path) -> None:
     result = predict_stage(cfg, run_dir)
     adapt_stage(cfg, run_dir, "France", per_rule=2000)
     result = predict_stage(cfg, run_dir, adapted=True)
+    pseudo = pseudo_stage(cfg, run_dir, "France", max_pos=2000, max_neg=4000)
+    run_dir = train_stage(cfg, "smoke2", extra_fit=Path(pseudo["path"]))
+    result = predict_stage(cfg, run_dir)
 
     assert stats["final_pairs"] > 0
     assert (run_dir / "model1.txt").exists() and (run_dir / "model2.txt").exists()

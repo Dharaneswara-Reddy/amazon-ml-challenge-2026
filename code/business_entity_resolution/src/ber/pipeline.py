@@ -632,13 +632,15 @@ def _best_iter(booster: lgb.Booster) -> int:
     return int(booster.best_iteration if booster.best_iteration > 0 else booster.current_iteration())
 
 
-def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None) -> Path:
+def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None, extra_fit: Path | None = None) -> Path:
     """Stage-1 LightGBM, out-of-fold stage-1 predictions, stage-2 LightGBM, and the decision rule; score holdout.
 
     The rule (threshold vs expected-F0.5) and its parameters come from the tune group only (choose_decision);
     the holdout is scored once. Everything is recorded in the run manifest.
     resume: an earlier run dir of this function; every model and every complete prediction / feature parquet
     already there is reused, and only the missing steps run.
+    extra_fit: optional feature parquet of extra labelled rows (e.g. pseudo-labelled test pairs of an unseen country,
+    ``pseudo_stage``) appended to the stage-1 training rows of the final stage-1 model only (D-026).
     """
     run = Path(resume) if resume else new_run_dir(cfg, name)
 
@@ -662,8 +664,14 @@ def train_stage(cfg: Config, name: str = "v2", resume: Path | None = None) -> Pa
         if have("model1.txt"):
             b1 = lgb.Booster(model_file=str(run / "model1.txt"))
         else:
-            with stage("train_stage1", run=run) as st:
-                b1 = train(fit_in, tune_in, params, seed, threads, rounds=rounds)
+            fit_b1 = fit_in
+            if extra_fit is not None:
+                fit_b1 = run / "fit_in_plus.parquet"
+                con.execute(f"""COPY (SELECT * FROM read_parquet('{fit_in}')
+                                      UNION ALL BY NAME SELECT * FROM read_parquet('{extra_fit}'))
+                                TO '{fit_b1}' (FORMAT parquet)""")
+            with stage("train_stage1", run=run, extra_fit=str(extra_fit)) as st:
+                b1 = train(fit_b1, tune_in, params, seed, threads, rounds=rounds)
                 b1.save_model(str(run / "model1.txt"), num_iteration=b1.best_iteration)
                 st["best_iteration"] = b1.best_iteration
         if not have("pred1_fit.parquet"):
@@ -944,3 +952,40 @@ def adapt_stage(cfg: Config, run_dir: Path, country: str = "France", per_rule: i
         db.unlink(missing_ok=True)
     log.info(kv(event="adapt_done", **{k: v for k, v in out.items() if not isinstance(v, dict)}))
     return out
+
+
+def pseudo_stage(
+    cfg: Config, run_dir: Path, country: str = "France", max_pos: int = 600_000, max_neg: int = 1_200_000
+) -> dict[str, Any]:
+    """Pseudo-labelled training rows for an unseen test country from a run's test predictions (D-026).
+
+    Rows of the country's test feature file get y = 1 when p2 > 0.98, the pair is its right record's best and the
+    number signature is not a distractor offset; y = 0 when p2 < 0.02, or a distractor offset with p2 < 0.5. Samples up
+    to max_pos / max_neg rows into cache/pseudo_<country>.parquet (feature columns + label) for
+    ``train_stage(extra_fit=...)``. Measured +0.1 pt on top of self-labelled vocabularies in the unseen-country
+    simulation (research_notes/v4/I_transfer.md, C3s).
+    """
+    con = connect(cfg)
+    out = io.cache_dir(cfg) / f"pseudo_{country.lower()}.parquet"
+    try:
+        _views(con, cfg, "test")
+        in_country = f"(SELECT entity_id FROM L WHERE country_norm = '{country.lower()}')"
+        con.execute(f"""COPY (
+            WITH f AS (SELECT f.*, p.p, row_number() OVER (PARTITION BY f.rid ORDER BY p.p DESC, f.lid) AS pr
+                       FROM read_parquet('{feat_path(cfg, "test")}') f
+                       JOIN read_parquet('{run_dir / "pred2_test.parquet"}') p USING (lid, rid)
+                       WHERE f.lid IN {in_country}),
+                 l AS (SELECT *, CASE WHEN p > 0.98 AND pr = 1 AND coalesce(sg_sole_off_in_s, 0) = 0 THEN 1
+                                      WHEN p < 0.02 OR (coalesce(sg_sole_off_in_s, 0) = 1 AND p < 0.5) THEN 0 END AS y
+                       FROM f),
+                 s AS (SELECT *, row_number() OVER (PARTITION BY y ORDER BY hash(lid || rid)) AS k
+                       FROM l WHERE y IS NOT NULL)
+            SELECT * EXCLUDE (p, pr, y, k), y::TINYINT AS label FROM s
+            WHERE (y = 1 AND k <= {max_pos}) OR (y = 0 AND k <= {max_neg})
+          ) TO '{out}' (FORMAT parquet, COMPRESSION zstd)""")
+        n = dict(con.execute(f"SELECT label, count(*) FROM read_parquet('{out}') GROUP BY 1").fetchall())
+    finally:
+        con.close()
+    res = {"country": country, "path": str(out), "pos": n.get(1, 0), "neg": n.get(0, 0)}
+    log.info(kv(event="pseudo_done", **res))
+    return res
