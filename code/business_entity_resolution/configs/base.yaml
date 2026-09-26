@@ -13,6 +13,7 @@ engine:
   duckdb_threads: 12
   workers: 6                    # processes for Python-side normalization/features
   batch_rows: 200000
+  max_temp_dir: 20GiB          # DuckDB spill cap (disk is ~92% full on this laptop)
 
 blocking:                      # v2 (DESIGN_V2 §S2, D-006)
   token_min_len: 2
