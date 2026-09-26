@@ -10,4 +10,4 @@ Max 5 per day. One row per leaderboard upload; the folder holds the exact files 
 | 04 | 20260926-0947 | `submissions/04_20260926-0947` | `ccac9d7` | probe | 0.847629 | SCORED | PROBE (not a model change): submission 03 with every France row emptied, to measure France's public F0.5 |
 | 05 | 20260926-1100 | `submissions/05_20260926-1100` | `9e2adac` | 0.9876 | | 0.981323 | SCORED | v4a: v3 + France transductive adaptation (rule-labelled test pairs -> French signature vocab + token log-odds; France features recomputed) |
 | 06 | 20260926-1234 | `submissions/06_20260926-1234` | `7c92407` | 0.9879 | | 0.982191 | SCORED | v4: v3 + self-labelled per-country vocabularies (France learned from test, no labels) + no EM shift for France |
-| 07 | 20260926-1307 | `submissions/07_20260926-1307` | `c2042b9` | 0.9877 | | pending | v4s: v4 + France pseudo-label self-training (stage-1 trained with rule/model-labelled France test pairs) |
+| 07 | 20260926-1307 | `submissions/07_20260926-1307` | `c2042b9` | 0.9877 | | 0.981916 | SCORED | v4s: v4 + France pseudo-label self-training (stage-1 trained with rule/model-labelled France test pairs) |
