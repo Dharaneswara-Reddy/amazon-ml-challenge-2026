@@ -10,7 +10,7 @@ STEPS=(learn_maps normalize_train normalize_test block_sample train_ranker block
 [ $V = v3 ] && STEPS=(block3_train block3_test learn_logodds features_train features_test train predict)
 [ $V = v4 ] && STEPS=(learn_selfvocab features_train features_test train predict)
 now=$(date +%s)
-alive=$(pgrep -f "^[^ ]*bash scripts/run_v2.sh" >/dev/null && echo RUNNING || echo "NOT RUNNING")
+alive=$(pgrep -f "^[^ ]*bash scripts/run_v[0-9s]*.sh" >/dev/null && echo RUNNING || echo "NOT RUNNING")
 bar() { local d=$1 t=$2 w=30 f s; f=$(( t > 0 ? d * w / t : 0 )); printf -v s '%*s' "$f" ''; printf '[%s%*s] %s/%s' "${s// /#}" $((w - f)) '' "$d" "$t"; }
 hms() { printf '%dh%02dm' $(($1 / 3600)) $(($1 % 3600 / 60)); }
 start_of() { grep -E "^=== [0-9:]+ $1\$" "$OUT" 2>/dev/null | tail -1 | awk '{print $2}'; }
