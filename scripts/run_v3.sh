@@ -42,6 +42,12 @@ case "${1:?usage: run_v3.sh all|from_features|train|predict <run_dir>}" in
     run train train --name v3
     rundir
     ;;
+  predict_resume)
+    RUN=${2:?usage: run_v3.sh predict_resume <run_dir>}
+    run predict predict --run "$RUN" --resume
+    scripts/freeze_submission.sh "$RUN" "v3: blocking v3 (compound keys + learned cut) + signature features + per-country prior shift + lr 0.2"
+    step "all done"
+    ;;
   predict)
     RUN=${2:?usage: run_v3.sh predict <run_dir>}
     run predict predict --run "$RUN"
