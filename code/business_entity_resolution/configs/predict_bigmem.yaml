@@ -1,0 +1,5 @@
+# Engine override for test prediction when nothing else runs: stage-2 entity windows over ~19M test pairs need more
+# unspillable memory (results unaffected).
+engine:
+  duckdb_memory_limit: 9GB
+  duckdb_threads: 6
