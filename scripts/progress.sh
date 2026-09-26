@@ -2,10 +2,12 @@
 # Live view of the v2 pipeline (scripts/run_v2.sh). From the repo root:  watch -n 5 scripts/progress.sh
 cd "$(git rev-parse --show-toplevel)"
 L=artifacts/logs
-OUT=$L/v2_all.out
+V=v2; [ -f $L/v3_all.out ] && V=v3
+OUT=$L/${V}_all.out
 PY=.venv/bin/python
 STEPS=(learn_maps normalize_train normalize_test block_sample train_ranker block_train block_test learn_logodds
        features_train features_test train predict)
+[ $V = v3 ] && STEPS=(block3_train block3_test learn_logodds features_train features_test train predict)
 now=$(date +%s)
 alive=$(pgrep -f "^[^ ]*bash scripts/run_v2.sh" >/dev/null && echo RUNNING || echo "NOT RUNNING")
 bar() { local d=$1 t=$2 w=30 f s; f=$(( t > 0 ? d * w / t : 0 )); printf -v s '%*s' "$f" ''; printf '[%s%*s] %s/%s' "${s// /#}" $((w - f)) '' "$d" "$t"; }
@@ -13,33 +15,34 @@ hms() { printf '%dh%02dm' $(($1 / 3600)) $(($1 % 3600 / 60)); }
 start_of() { grep -E "^=== [0-9:]+ $1\$" "$OUT" 2>/dev/null | tail -1 | awk '{print $2}'; }
 secs() { date -d "$1" +%s 2>/dev/null; }
 
-echo "PIPELINE V2   $(date +%H:%M:%S)   chain: $alive   (full log: $OUT)"
+echo "PIPELINE ${V^^}   $(date +%H:%M:%S)   chain: $alive   (full log: $OUT)"
 echo "────────────────────────────────────────────────────────────────────────────"
 cur=""
 for s in "${STEPS[@]}"; do
   t=$(start_of "$s")
   if [ -z "$t" ]; then printf '  [ ]  %-16s\n' "$s"; continue; fi
   cur=$s
-  if [ -s "$L/v2_$s.json" ]; then printf '  [x]  %-16s started %s  done\n' "$s" "$t"
+  if [ -s "$L/${V}_$s.json" ]; then printf '  [x]  %-16s started %s  done\n' "$s" "$t"
   elif [ "$alive" = RUNNING ]; then printf '  [>]  %-16s started %s, %s elapsed\n' "$s" "$t" "$(hms $(( now - $(secs "$t") )))"
   else printf '  [!]  %-16s started %s, FAILED or stopped (see errors)\n' "$s" "$t"
   fi
 done
 
-LOG=$L/v2_$cur.log
+LOG=$L/${V}_$cur.log
 if [ -n "$cur" ] && [ -f "$LOG" ]; then
   echo; echo "Current step: $cur"
   case $cur in
     normalize_*) l=$(grep -o "normalize rows=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/normalize rows=//')
                  [ -n "$l" ] && echo "  rows  $(bar "${l%/*}" "${l#*/}")"
                  grep -o "stage_start stage=normalize.*source=[0-9]" "$LOG" | tail -1 | sed 's/^/  /' ;;
+    block3_*)    grep -oE "block3 pass=.*|block3 union bucket=[0-9/]+ rows=[0-9]+|block3 cut scored bucket=[0-9/]+" "$LOG" | tail -8 | cut -c1-110 | sed 's/^/  /' ;;
     block_*)     grep -o "blocking step=.*" "$LOG" | tail -12 | sed 's/^/  pass done: /'
                  l=$(grep -o "blocking union bucket=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/.*bucket=//')
                  [ -n "$l" ] && echo "  union+rank buckets $(bar "${l%/*}" "${l#*/}")" ;;
     features_*)  grep -o "stage_start stage=features.*\|stage_end stage=features[^ ]* [^ ]* [^ ]* seconds=[^ ]*\|features written.*rows=[0-9]*" "$LOG" | tail -4 | cut -c1-110 | sed 's/^/  /'
                  l=$(grep -o "features bucket=[0-9]*/[0-9]*" "$LOG" | tail -1 | sed 's/.*bucket=//')
                  [ -n "$l" ] && echo "  buckets (current group) $(bar "${l%/*}" "${l#*/}")" ;;
-    train)       RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
+    train)       RUN=$(ls -td artifacts/runs/*_${V} 2>/dev/null | head -1)
                  last=$(stat -c %Y "$(ls -t "$RUN"/* 2>/dev/null | head -1)" 2>/dev/null || echo "$now")
                  pids=$(pgrep -d, -f "bin/ber |multiprocessing.spawn"); cpu=$( [ -n "$pids" ] && top -b -n1 -p "$pids" | awk 'NR>7 {c+=$9} END {printf "%.0f", c}' )
                  ms() { if [ -e "$RUN/$1" ]; then printf '    [x] %s\n' "$2"; elif [ "$3" = cur ]; then printf '    [>] %s   <- running %dm%02ds, CPU %s%%\n' "$2" $(( (now - last) / 60 )) $(( (now - last) % 60 )) "$cpu"; else printf '    [ ] %s\n' "$2"; fi; }
@@ -60,7 +63,7 @@ if [ -n "$cur" ] && [ -f "$LOG" ]; then
                  ms manifest.json       "save run manifest" "$(st manifest.json)"
                  echo "  latest log lines:"
                  grep -oE "\[[0-9]+\].*|trained lightgbm best_iteration=[0-9]+|oof fold=.*|stage2 features written.*rows=[0-9]+|train_done.*" "$LOG" | tail -3 | cut -c1-120 | sed 's/^/    /' ;;
-    predict)     RUN=$(ls -td artifacts/runs/*_v2 2>/dev/null | head -1)
+    predict)     RUN=$(ls -td artifacts/runs/*_${V} 2>/dev/null | head -1)
                  ms=("pred1_test.parquet:score test with stage 1" "s2_test.parquet:build stage-2 test features" "pred2_test.parquet:score test with stage 2" "predict.json:prior shift + decision + write output TSVs")
                  for i in 0 1 2 3; do
                    f=${ms[$i]%%:*}; label=${ms[$i]#*:}; nf=${ms[$((i + 1))]%%:*}
@@ -90,13 +93,22 @@ echo; echo "Results so far:"
 $PY - <<'PYEOF' 2>/dev/null
 import json, pathlib
 L = pathlib.Path("artifacts/logs")
+V = "v3" if (L / "v3_all.out").exists() else "v2"
 def j(name):
-    p = L / f"v2_{name}.json"
+    p = L / f"{V}_{name}.json"
     try:
         return json.loads(p.read_text()) if p.stat().st_size else None
     except Exception:
         return None
-for split in ("sample", "train", "test"):
+for split in (("block3_train", "block3_test") if V == "v3" else ()):
+    b = j(split)
+    if b:
+        r = b.get("recall") or {}
+        line = f"  {split}: pairs={b.get('final_pairs', 0):,}"
+        line += f"  recall={r['recall']:.4f}  pairs/S1={r['pairs_per_s1']:.1f}" if r else f"  pairs/S1={b.get('pairs_per_s1', 0):.1f}"
+        line += "".join(f"  {k}={b[k]:.4f}" for k in ("recall_fit", "recall_tune", "recall_holdout") if k in b)
+        print(line)
+for split in (() if V == "v3" else ("sample", "train", "test")):
     b = j(f"block_{split}")
     if b:
         r = b.get("recall", {})

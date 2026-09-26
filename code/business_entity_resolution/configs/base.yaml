@@ -31,6 +31,9 @@ blocking:                      # v2 (DESIGN_V2 §S2, D-006)
   nameonly_max_addr_tokens: 2
   final_top_k: 5               # overridden by learned/ranker.json "k" when the ranker exists
   buckets: 16
+  v3: true                     # blocking v3 (D-022): compound-key passes + learned cut on top of the v2 candidates
+  v3_top_k: 1                  # keep the legacy-linear top-k per right ...
+  v3_threshold: 0.001          # ... OR any pair with cut-model p >= this (measured 98.2% recall, 7.6 pairs / S1)
 
 features:
   buckets: 16                  # right-id hash buckets for the feature pass (D-019)
@@ -38,4 +41,7 @@ features:
 model:                         # LightGBM for stage 1 and stage 2 (D-007, D-008)
   rounds: 5000                 # upper bound; early stopping on the tune group decides
   params:
-    learning_rate: 0.1         # v1 used 0.05 and hit the 2000-round cap while still improving
+    learning_rate: 0.2         # measured faster AND lower logloss than 0.1 (research_notes/v3/C_speed.md)
+
+decision:
+  per_country_shift: true      # D-023: EM prior shift per test country instead of one pooled shift

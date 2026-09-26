@@ -32,11 +32,12 @@ import pyarrow.parquet as pq
 from rapidfuzz import fuzz, process
 from rapidfuzz.distance import JaroWinkler
 
-from ber import textdiff
+from ber import signature, textdiff
+from ber.block3 import V3_CAND_COLS
 
 log = logging.getLogger(__name__)
 
-FEATURE_SET_VERSION = "v2"
+FEATURE_SET_VERSION = "v3"
 
 PASS_FLAGS = [
     "in_tok",
@@ -74,7 +75,10 @@ SQL_OTHER = [
     "l_unit",
     "r_unit",
 ]
-SQL_FEATURES = PASS_FLAGS + BLOCK_COLS + CONTEXT + SQL_OTHER
+# v3 candidate evidence (compound-key passes, cut model) and crowded-name context (D-022, D-023)
+V3_BLOCK = list(V3_CAND_COLS)
+CROWD = ["r_core_l_freq", "r_same_name_cands"]
+SQL_FEATURES = PASS_FLAGS + BLOCK_COLS + CONTEXT + SQL_OTHER + V3_BLOCK + CROWD
 PY_STRING = [
     "name_ratio",
     "name_jw",
@@ -99,7 +103,7 @@ PY_STRING = [
 ]
 TEXTDIFF_NAME = list(textdiff.name_diff_features([], [], None, None).keys())
 TEXTDIFF_NUM = list(textdiff.number_relation_features([], []).keys())
-PY_FEATURES = PY_STRING + TEXTDIFF_NAME + TEXTDIFF_NUM
+PY_FEATURES = PY_STRING + TEXTDIFF_NAME + TEXTDIFF_NUM + signature.SIG_FEATURES
 FEATURES = SQL_FEATURES + PY_FEATURES
 
 STRING_COLS = (
@@ -168,7 +172,7 @@ def bucket_frame_sql(
     label_col = ", (g.s1_id IS NOT NULL)::TINYINT AS label" if label_sql else ""
     flags = ",\n      ".join(_col_or(cand_cols, f, "0::TINYINT", "::TINYINT") for f in PASS_FLAGS)
     blocks = ",\n      ".join(
-        f"coalesce(c.{f}, 0)::FLOAT AS {f}" if f in cand_cols else f"0::FLOAT AS {f}" for f in BLOCK_COLS
+        f"coalesce(c.{f}, 0)::FLOAT AS {f}" if f in cand_cols else f"0::FLOAT AS {f}" for f in BLOCK_COLS + V3_BLOCK
     )
     strings = ",\n      ".join(
         f"{_norm_col(norm_cols, 'l', s)} AS l_{s}, {_norm_col(norm_cols, 'r', s)} AS r_{s}" for s in STRING_COLS
@@ -211,7 +215,9 @@ def bucket_frame_sql(
       ({lcity} <> '' AND {lcity} = {rcity})::TINYINT AS city_eq,
       ({ladm} <> '' AND {ladm} = {radm})::TINYINT AS admin_eq,
       ({ladm} <> '' AND {radm} <> '' AND {ladm} <> {radm})::TINYINT AS admin_diff,
-      ({lunit} <> '')::TINYINT AS l_unit, ({runit} <> '')::TINYINT AS r_unit
+      ({lunit} <> '')::TINYINT AS l_unit, ({runit} <> '')::TINYINT AS r_unit,
+      coalesce(rlf.f, 0) AS r_core_l_freq,
+      sum((l.name_core = r.name_core)::INT) OVER (PARTITION BY c.rid) AS r_same_name_cands
       {label_col}
     FROM c
     JOIN (SELECT * FROM lctx WHERE {rb}) x ON x.lid = c.lid AND x.rid = c.rid
@@ -219,6 +225,7 @@ def bucket_frame_sql(
     JOIN (SELECT * FROM R WHERE hash(entity_id) % {buckets} = {b}) r ON r.entity_id = c.rid
     LEFT JOIN lname_freq lfq ON lfq.name_core = l.name_core
     LEFT JOIN rname_freq rfq ON rfq.name_core = r.name_core
+    LEFT JOIN lname_freq rlf ON rlf.name_core = r.name_core
     {label_join}
     """
 
@@ -252,12 +259,17 @@ def _nums(a: list[str], b: list[str]) -> tuple[np.ndarray, np.ndarray]:
 
 _IDF: Mapping[str, float] | None = None
 _LOGODDS: Mapping[str, float] | None = None
+_SIGVOCAB: Mapping[str, Mapping[str, float]] | None = None
 
 
-def _init_worker(idf: Mapping[str, float] | None, logodds: Mapping[str, float] | None) -> None:
-    """Process-pool initializer: install the IDF and token log-odds tables used by the text-difference features."""
-    global _IDF, _LOGODDS
-    _IDF, _LOGODDS = idf, logodds
+def _init_worker(
+    idf: Mapping[str, float] | None,
+    logodds: Mapping[str, float] | None,
+    sigvocab: Mapping[str, Mapping[str, float]] | None = None,
+) -> None:
+    """Process-pool initializer: install the IDF, token log-odds and signature vocabularies used by the features."""
+    global _IDF, _LOGODDS, _SIGVOCAB
+    _IDF, _LOGODDS, _SIGVOCAB = idf, logodds, sigvocab
 
 
 def python_features(batch: pa.RecordBatch) -> dict[str, np.ndarray]:
@@ -297,6 +309,11 @@ def python_features(batch: pa.RecordBatch) -> dict[str, np.ndarray]:
     houses_l = [h or n for h, n in zip(col["l_addr_house"], col["l_addr_nums"], strict=True)]
     houses_r = [h or n for h, n in zip(col["r_addr_house"], col["r_addr_nums"], strict=True)]
     f.update(textdiff.number_relation_features(houses_l, houses_r))
+    f.update(
+        signature.signature_features(
+            col["l_name_norm"], col["l_addr_norm"], col["r_name_norm"], col["r_addr_norm"], _SIGVOCAB
+        )
+    )
     return f
 
 
@@ -326,6 +343,7 @@ def iter_feature_batches(
     buckets: int = 16,
     idf: Mapping[str, float] | None = None,
     logodds: Mapping[str, float] | None = None,
+    sigvocab: Mapping[str, Mapping[str, float]] | None = None,
 ) -> Iterator[pa.RecordBatch]:
     """Stream candidate pairs bucket by bucket through both feature layers; yield assembled feature batches.
 
@@ -335,7 +353,7 @@ def iter_feature_batches(
     norm_cols = {r[0] for r in con.execute("DESCRIBE L").fetchall()}
     _prepare_tables(con, buckets, group_sql, context_rids)
     ctx = mp.get_context("spawn")
-    pool = ctx.Pool(max(1, workers), initializer=_init_worker, initargs=(idf, logodds))
+    pool = ctx.Pool(max(1, workers), initializer=_init_worker, initargs=(idf, logodds, sigvocab))
     pending: deque = deque()
     try:
         for b in range(buckets):
@@ -365,13 +383,14 @@ def write_features(
     buckets: int = 16,
     idf: Mapping[str, float] | None = None,
     logodds: Mapping[str, float] | None = None,
+    sigvocab: Mapping[str, Mapping[str, float]] | None = None,
 ) -> int:
     """Write the feature matrix for view `candidates` (optionally one group + rivals) to zstd parquet; return rows."""
     writer = None
     n = 0
     try:
         for batch in iter_feature_batches(
-            con, label_sql, batch_rows, workers, group_sql, context_rids, buckets, idf, logodds
+            con, label_sql, batch_rows, workers, group_sql, context_rids, buckets, idf, logodds, sigvocab
         ):
             if writer is None:
                 writer = pq.ParquetWriter(out_path, batch.schema, compression="zstd")

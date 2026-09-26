@@ -176,6 +176,14 @@ def run_block(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def run_block3(args: argparse.Namespace, cfg: Config) -> int:
+    """Blocking v3: compound-key passes over the v2 candidates plus the learned cut; report recall (train)."""
+    from ber.pipeline import block3_stage
+
+    _emit(block3_stage(cfg, args.split), None)
+    return 0
+
+
 def run_train_ranker(args: argparse.Namespace, cfg: Config) -> int:
     """Fit the linear blocking ranker and cap K on the dumped union sample."""
     from ber.pipeline import train_ranker_stage
@@ -234,6 +242,7 @@ COMMANDS: list[tuple[str, str, AddArgs, Run]] = [
     ("learn-maps", "learn Indic legal-form map and admin vocabulary", add_nothing, run_learn_maps),
     ("normalize", "normalize names/addresses of a split", add_split, run_normalize),
     ("block", "generate blocking candidates for a split", add_block, run_block),
+    ("block3", "blocking v3 on top of the v2 candidates (compound keys + learned cut)", add_split, run_block3),
     ("train-ranker", "fit the linear blocking ranker on the union sample", add_nothing, run_train_ranker),
     ("learn-logodds", "learn token log-odds per fold", add_nothing, run_learn_logodds),
     ("features", "compute pair features for a split", add_split, run_features),

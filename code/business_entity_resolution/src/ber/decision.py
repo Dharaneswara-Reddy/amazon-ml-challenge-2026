@@ -451,23 +451,25 @@ SHIFT_GRID = (-1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0)
 EMPTY_WEIGHT_GRID = (0.8, 1.0, 1.25, 1.5, 2.0, 3.0)
 
 
-def _logit_shift(p: np.ndarray, shift: float) -> np.ndarray:
-    """Add ``shift`` to the logit of probabilities ``p`` (identity when shift == 0)."""
-    if shift == 0:
+def _logit_shift(p: np.ndarray, shift: float | np.ndarray) -> np.ndarray:
+    """Add ``shift`` (scalar, or one value per pair) to the logit of probabilities ``p`` (identity when 0)."""
+    if np.isscalar(shift) and shift == 0:
         return p
     q = np.clip(p, 1e-6, 1 - 1e-6)
     return 1.0 / (1.0 + np.exp(-(np.log(q / (1 - q)) + shift)))
 
 
-def calibrate(params: Mapping[str, Any], is_best: np.ndarray, p: np.ndarray, shift: float | None = None) -> np.ndarray:
+def calibrate(
+    params: Mapping[str, Any], is_best: np.ndarray, p: np.ndarray, shift: float | np.ndarray | None = None
+) -> np.ndarray:
     """Calibrated probabilities from raw scores ``p`` with fitted params (see ``fit_decision``).
 
     Pairs that are their right record's best candidate (``is_best``, e.g. ``Prepared.is_best``) go through
     ``cal_best``, rivals that lose the one-to-one step through ``cal_other``; then the logit is shifted by ``shift``
-    (default ``params['shift']``).
+    (default ``params['shift']``; an array gives one shift per pair, e.g. per-country prior shifts).
     """
     pc = np.where(is_best, Calibrator.from_dict(params["cal_best"])(p), Calibrator.from_dict(params["cal_other"])(p))
-    return _logit_shift(pc, float(params.get("shift", 0.0) if shift is None else shift))
+    return _logit_shift(pc, float(params.get("shift", 0.0)) if shift is None else shift)
 
 
 def fit_decision(
@@ -518,11 +520,18 @@ def fit_decision(
     return params
 
 
-def decide(params: Mapping[str, Any], lid_idx: np.ndarray, rid: np.ndarray, p: np.ndarray) -> np.ndarray:
+def decide(
+    params: Mapping[str, Any],
+    lid_idx: np.ndarray,
+    rid: np.ndarray,
+    p: np.ndarray,
+    pair_shift: np.ndarray | None = None,
+) -> np.ndarray:
     """Apply saved decision params (from ``fit_decision``; ``params['rule']`` picks the rule) to raw scores ``p``.
 
     lid_idx: entity index per pair (e.g. ``dense_rank() OVER (ORDER BY lid) - 1`` in DuckDB); rid: right ids (any
-    sortable dtype, integer codes are cheapest). Returns the boolean match mask.
+    sortable dtype, integer codes are cheapest). pair_shift: optional logit shift per pair (overrides
+    ``params['shift']``, expected_f rule only). Returns the boolean match mask.
     """
     if params["rule"] == "threshold":
         return select(lid_idx, rid, p, float(params["threshold"]))
@@ -531,7 +540,7 @@ def decide(params: Mapping[str, Any], lid_idx: np.ndarray, rid: np.ndarray, p: n
     prep = prepare(lid_idx, rid, p, int(params["max_k"]))
     k_star, _ = choose_k(
         prep,
-        calibrate(params, prep.is_best, p),
+        calibrate(params, prep.is_best, p, pair_shift),
         MissingModel.from_dict(params["missing"]),
         float(params["empty_weight"]),
         Calibrator.from_dict(params["cal_empty"]),

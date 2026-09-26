@@ -34,7 +34,7 @@ from ber.writer import write_outputs
 
 log = logging.getLogger(__name__)
 
-DECISIONS_IN_EFFECT = [f"D-{i:03d}" for i in range(1, 21)]
+DECISIONS_IN_EFFECT = [f"D-{i:03d}" for i in range(1, 24)]
 TRAIN_GROUPS = ("fit", "tune", "holdout")
 
 
@@ -51,6 +51,13 @@ def norm_path(cfg: Config, split: str, source: int) -> Path:
 def cand_path(cfg: Config, split: str) -> Path:
     """Path of the blocking candidates parquet for a split."""
     return io.cache_dir(cfg) / f"cand_{split}.parquet"
+
+
+def model_cand_path(cfg: Config, split: str) -> Path:
+    """Candidates the model scores: blocking v3 output (cand3_*) when ``blocking.v3`` is on, else v2 candidates."""
+    if bool(cfg.get("blocking", {}).get("v3", False)):
+        return io.cache_dir(cfg) / f"cand3_{split}.parquet"
+    return cand_path(cfg, split)
 
 
 def feat_path(cfg: Config, split: str, group: str | None = None) -> Path:
@@ -75,6 +82,8 @@ def gt_sql(cfg: Config, group: str | None = None) -> str:
 def blocking_config(cfg: Config, **overrides: Any) -> BlockingConfig:
     """Build the BlockingConfig from the `blocking` config section, the learned ranker if present, and overrides."""
     section = dict(cfg.get("blocking", {}))
+    for key in ("v3", "v3_top_k", "v3_threshold"):  # blocking v3 settings, read by block3_stage
+        section.pop(key, None)
     for key in ("sn_keys", "token_fields"):
         if key in section:
             section[key] = tuple(section[key])
@@ -212,6 +221,55 @@ def block_stage(cfg: Config, split: str, sample_pct: int | None = None) -> dict[
     return stats
 
 
+def block3_stage(cfg: Config, split: str) -> dict[str, Any]:
+    """Blocking v3 (D-022): compound-key passes over the v2 candidates, union, learned cut -> cand3_<split>.parquet.
+
+    Train: the cut GBDT is trained on FIT-group S1 rows and saved to learned/cut_model.txt; recall is reported overall
+    and per group. Test: the saved cut model is applied unchanged.
+    """
+    from ber import block3
+
+    bsec = dict(cfg.get("blocking", {}))
+    top_k, thr = int(bsec.get("v3_top_k", 1)), float(bsec.get("v3_threshold", 1e-3))
+    db = io.cache_dir(cfg) / f"block3_{split}.duckdb"
+    union_dir = io.cache_dir(cfg) / f"block3_union_{split}"
+    db.unlink(missing_ok=True)
+    con = connect(cfg, db)
+    out = model_cand_path(cfg, split)
+    model = learned_dir(cfg) / "cut_model.txt"
+    stats: dict[str, Any] = {}
+    try:
+        with stage("block3", split=split) as st:
+            gt = str(io.gt_pairs_path(cfg)) if split == "train" else None
+            stats.update(block3.load_tables(
+                con, str(norm_path(cfg, split, 1)), [str(norm_path(cfg, split, s)) for s in (2, 3)],
+                str(cand_path(cfg, split)), gt,
+            ))
+            stats.update(block3.run_passes(con, block3.PASSES_V3))
+            ranker = learned_dir(cfg) / "ranker.json"
+            stats["union_rows"] = block3.build_union(con, union_dir, str(ranker) if ranker.exists() else None)
+            for p in block3.PASSES_V3:
+                con.execute(f"DROP TABLE IF EXISTS cand_{p}")
+            if split == "train":
+                stats.update(block3.train_cut(con, union_dir, "bkt < 30", model, int(cfg.seed)))
+            stats.update(block3.apply_cut(con, union_dir, model, out, top_k, thr))
+            if split == "train":
+                stats["recall"] = block3.recall(con, out, gt)
+                for g in TRAIN_GROUPS:
+                    stats[f"recall_{g}"] = block3.recall(con, out, gt, group_where("s1_id", g))["recall"]
+            else:
+                nl = con.execute("SELECT count(*) FROM L").fetchone()[0]
+                stats["pairs_per_s1"] = stats["final_pairs"] / max(nl, 1)
+            st.update({k: v for k, v in stats.items() if not isinstance(v, dict)})
+    finally:
+        con.close()
+        db.unlink(missing_ok=True)
+        import shutil
+
+        shutil.rmtree(union_dir, ignore_errors=True)
+    return stats
+
+
 def train_ranker_stage(cfg: Config) -> dict[str, Any]:
     """Fit the linear blocking ranker and cap K on the dumped fit-group union sample (run block --sample first)."""
     con = connect(cfg)
@@ -227,8 +285,67 @@ def train_ranker_stage(cfg: Config) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def learn_logodds_stage(cfg: Config, max_pairs: int = 3_000_000) -> dict[str, Any]:
-    """Learn token log-odds (D-013) per stacking fold and for the full fit group from labelled train candidates."""
+def learn_sigvocab(rows: list[tuple], workers: int) -> dict:
+    """Signature edit-token vocabulary (D-021) from labelled (l_name, l_addr, r_name, r_addr, label) pairs.
+
+    Edit operations are extracted in parallel; token counts are merged and turned into smoothed log-odds.
+    """
+    import math
+    import multiprocessing as mp
+    from collections import Counter
+
+    from ber import signature
+
+    chunks = [rows[i : i + 50_000] for i in range(0, len(rows), 50_000)]
+    with mp.get_context("spawn").Pool(max(1, workers)) as pool:
+        parts = pool.map(_count_chunk, chunks)
+    neg: dict[str, Counter] = {}
+    pos: dict[str, Counter] = {}
+    n_pos = n_neg = 0
+    for cn, cp, a, b in parts:
+        n_neg += a
+        n_pos += b
+        for k in cn:
+            neg.setdefault(k, Counter()).update(cn[k])
+            pos.setdefault(k, Counter()).update(cp[k])
+    prior = math.log(max(n_pos, 1) / max(n_neg, 1))
+    return {
+        k: {
+            w: round(math.log((neg[k][w] + 1) / (pos[k][w] + 1)) + prior, 3)
+            for w in set(neg[k]) | set(pos[k])
+            if neg[k][w] + pos[k][w] >= signature.VOCAB_MIN_COUNT
+        }
+        for k in neg
+    }
+
+
+def _count_chunk(rows: list[tuple]) -> tuple[dict, dict, int, int]:
+    """Edit-token counts of one chunk: (non-match counts, match counts, n_non_match, n_match)."""
+    from collections import Counter
+
+    from ber import signature
+
+    keys = ("ins", "del", "repl", "rtgt", "ains", "adel")
+    cn = {k: Counter() for k in keys}
+    cp = {k: Counter() for k in keys}
+    n_neg = n_pos = 0
+    for ln, la, rn, ra, label in rows:
+        toks = signature.edit_tokens(signature.pair_ops(ln or "", la or "", rn or "", ra or ""))
+        tgt = cp if label else cn
+        if label:
+            n_pos += 1
+        else:
+            n_neg += 1
+        for k, ws in toks.items():
+            tgt[k].update(ws)
+    return cn, cp, n_neg, n_pos
+
+
+def learn_logodds_stage(cfg: Config, max_pairs: int = 3_000_000, max_sig_pairs: int = 1_000_000) -> dict[str, Any]:
+    """Learn token log-odds (D-013) and signature vocabularies (D-021) per stacking fold and for the full fit group.
+
+    Both come from labelled train candidates of the model candidate set (cand3 when blocking v3 is on).
+    """
     from ber import textdiff
 
     con = connect(cfg)
@@ -238,7 +355,7 @@ def learn_logodds_stage(cfg: Config, max_pairs: int = 3_000_000) -> dict[str, An
         for name, groups in (("fitA", ("fitA",)), ("fitB", ("fitB",)), ("fit", ("fit",))):
             rows = con.execute(
                 f"""SELECT l.name_core, r.name_core, (g.s1_id IS NOT NULL)::INT
-                    FROM read_parquet('{cand_path(cfg, "train")}') c
+                    FROM read_parquet('{model_cand_path(cfg, "train")}') c
                     JOIN L l ON l.entity_id = c.lid JOIN R r ON r.entity_id = c.rid
                     LEFT JOIN ({gt_sql(cfg)}) g ON g.s1_id = c.lid AND g.match_id = c.rid
                     WHERE {group_where("c.lid", *groups)}
@@ -246,11 +363,28 @@ def learn_logodds_stage(cfg: Config, max_pairs: int = 3_000_000) -> dict[str, An
             ).fetchall()
             table = textdiff.learn_token_logodds(rows)
             (learned_dir(cfg) / f"logodds_{name}.json").write_text(json.dumps(table, ensure_ascii=False))
-            out[name] = {"pairs": len(rows), "tokens": len(table)}
+            del rows
+            sig_rows = con.execute(
+                f"""SELECT l.name_norm, l.addr_norm, r.name_norm, r.addr_norm, (g.s1_id IS NOT NULL)::INT
+                    FROM read_parquet('{model_cand_path(cfg, "train")}') c
+                    JOIN L l ON l.entity_id = c.lid JOIN R r ON r.entity_id = c.rid
+                    LEFT JOIN ({gt_sql(cfg)}) g ON g.s1_id = c.lid AND g.match_id = c.rid
+                    WHERE {group_where("c.lid", *groups)}
+                    USING SAMPLE {max_sig_pairs} ROWS (reservoir, 42)"""
+            ).fetchall()
+            vocab = learn_sigvocab(sig_rows, int(cfg.engine.workers))
+            (learned_dir(cfg) / f"sigvocab_{name}.json").write_text(json.dumps(vocab, ensure_ascii=False))
+            out[name] = {"tokens": len(table), "sig_pairs": len(sig_rows), "sig_tokens": sum(map(len, vocab.values()))}
     finally:
         con.close()
     log.info(kv(event="learned_logodds", **{k: v["tokens"] for k, v in out.items()}))
     return out
+
+
+def _sigvocab(cfg: Config, name: str) -> dict | None:
+    """Load a learned signature vocabulary, or None when it has not been learned yet."""
+    p = learned_dir(cfg) / f"sigvocab_{name}.json"
+    return json.loads(p.read_text()) if p.exists() else None
 
 
 def _logodds(cfg: Config, name: str) -> dict[str, float] | None:
@@ -271,7 +405,7 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
     try:
         _views(con, cfg, split)
-        con.execute(f"CREATE OR REPLACE VIEW candidates AS SELECT * FROM read_parquet('{cand_path(cfg, split)}')")
+        con.execute(f"CREATE OR REPLACE VIEW candidates AS SELECT * FROM read_parquet('{model_cand_path(cfg, split)}')")
         idf = name_idf(con)
         if split == "train":
             label = gt_sql(cfg)
@@ -290,6 +424,7 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
                         buckets,
                         idf,
                         _logodds(cfg, other_fold(fold)),
+                        _sigvocab(cfg, other_fold(fold)),
                     )
                 parts.append(p)
                 out[fold] = st["rows"]
@@ -314,12 +449,14 @@ def features_stage(cfg: Config, split: str) -> dict[str, Any]:
                         buckets,
                         idf,
                         _logodds(cfg, "fit"),
+                        _sigvocab(cfg, "fit"),
                     )
                 out[g] = st["rows"]
         else:
             with stage("features", split=split) as st:
                 st["rows"] = write_features(
-                    con, feat_path(cfg, split), None, rows, workers, None, False, buckets, idf, _logodds(cfg, "fit")
+                    con, feat_path(cfg, split), None, rows, workers, None, False, buckets, idf, _logodds(cfg, "fit"),
+                    _sigvocab(cfg, "fit"),
                 )
             out["test"] = st["rows"]
         return out
@@ -551,32 +688,50 @@ def predict_stage(cfg: Config, run_dir: Path, prior_shift: bool = True, resume: 
                 predict_file(
                     b2, run_dir / "s2_test.parquet", run_dir / "pred2_test.parquet", rows, features=MODEL2_FEATURES
                 )
+        s1_raw = io.raw_parquet_path(cfg, "test", 1)
         con.execute(
             f"""CREATE OR REPLACE TEMP TABLE pt AS
-                SELECT row_number() OVER () - 1 AS i, lid, rid, p,
-                       dense_rank() OVER (ORDER BY lid) - 1 AS li, dense_rank() OVER (ORDER BY rid) - 1 AS rc
-                FROM read_parquet('{run_dir / "pred2_test.parquet"}')"""
+                SELECT row_number() OVER () - 1 AS i, x.lid, x.rid, x.p,
+                       dense_rank() OVER (ORDER BY x.lid) - 1 AS li, dense_rank() OVER (ORDER BY x.rid) - 1 AS rc,
+                       coalesce(s.country, '') AS country
+                FROM read_parquet('{run_dir / "pred2_test.parquet"}') x
+                LEFT JOIN read_parquet('{s1_raw}') s ON s.entity_id = x.lid"""
         )
-        d = _fetch_numpy(con, "SELECT li, rc, p FROM pt ORDER BY i")
+        countries = [r[0] for r in con.execute("SELECT DISTINCT country FROM pt ORDER BY 1").fetchall()]
+        d = _fetch_numpy(
+            con, "SELECT li, rc, p, (dense_rank() OVER (ORDER BY country) - 1)::INT AS cc FROM pt ORDER BY i"
+        )
         li, rc, p = d["li"].astype(np.int64), d["rc"].astype(np.int64), d["p"].astype(np.float64)
+        cc = d["cc"].astype(np.int64)
         del d
         info: dict[str, Any] = {"rule": params["rule"]}
+        pair_shift = None
         if prior_shift:
+            # D-023: EM prior shift estimated per country (France has no training prior; pooled shift over-corrects it)
+            per_country = bool(cfg.get("decision", {}).get("per_country_shift", True))
             is_best = best_per_right(rc, li, p)
             p_cal = calibrate(params, is_best, p, shift=0.0)
             train_prior = float(manifest["metrics"]["train_prior_best"])
-            test_prior, _ = em_prior_shift(p_cal[is_best], train_prior)
-            delta = float(np.log(test_prior / (1 - test_prior)) - np.log(train_prior / (1 - train_prior)))
-            params = {**params, "shift": float(params.get("shift", 0.0)) + delta}
-            info.update(train_prior=train_prior, test_prior_em=test_prior, logit_delta=delta)
-            log.info(kv(event="prior_shift", **info))
-        if params["rule"] == "threshold" and prior_shift:
+            base = float(params.get("shift", 0.0))
+            pair_shift = np.full(len(p), base)
+            logit = lambda q: float(np.log(q / (1 - q)))  # noqa: E731
+            groups = list(enumerate(countries)) if per_country else [(-1, "all")]
+            shifts: dict[str, Any] = {}
+            for code, name in groups:
+                m = np.ones(len(p), dtype=bool) if code < 0 else cc == code
+                test_prior, _ = em_prior_shift(p_cal[is_best & m], train_prior)
+                delta = logit(test_prior) - logit(train_prior)
+                pair_shift[m] += delta
+                shifts[name] = {"test_prior_em": test_prior, "logit_delta": delta, "pairs": int(m.sum())}
+            info.update(train_prior=train_prior, prior_shift_by_country=shifts)
+            log.info(kv(event="prior_shift", train_prior=train_prior, shifts=json.dumps(shifts, default=float)))
+        if params["rule"] == "threshold" and pair_shift is not None:
             is_best = best_per_right(rc, li, p)
-            p_cal = calibrate(params, is_best, p, shift=params["shift"])
+            p_cal = calibrate(params, is_best, p, shift=pair_shift)
             t_cal = float(calibrate(params, np.array([True]), np.array([params["threshold"]]), shift=0.0)[0])
             mask = is_best & (p_cal >= t_cal)
         else:
-            mask = decide(params, li, rc, p)
+            mask = decide(params, li, rc, p, pair_shift)
         con.register("sel", {"i": np.flatnonzero(mask).astype(np.int64)})
         con.execute("CREATE TEMP TABLE matches AS SELECT pt.lid AS s1_id, pt.rid AS match_id FROM pt JOIN sel USING (i)")
         con.execute("DROP TABLE pt")
@@ -601,7 +756,7 @@ def _output_views(con: duckdb.DuckDBPyConnection, cfg: Config) -> None:
     """Views (streamed from parquet, never materialized) for the writer: test S1 ids, candidates, valid right ids."""
     con.execute(
         f"""CREATE OR REPLACE VIEW cands AS
-            SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{cand_path(cfg, "test")}')"""
+            SELECT lid AS s1_id, rid AS match_id FROM read_parquet('{model_cand_path(cfg, "test")}')"""
     )
     s1_path = io.raw_parquet_path(cfg, "test", 1)
     con.execute(f"CREATE OR REPLACE VIEW s1 AS SELECT entity_id AS s1_id FROM read_parquet('{s1_path}')")

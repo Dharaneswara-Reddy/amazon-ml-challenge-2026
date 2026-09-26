@@ -9,6 +9,7 @@ from pathlib import Path
 from ber import io
 from ber.config import PACKAGE_DIR, load_config
 from ber.pipeline import (
+    block3_stage,
     block_stage,
     features_stage,
     learn_logodds_stage,
@@ -120,6 +121,7 @@ def test_pipeline_end_to_end_passes_official_validator(tmp_path: Path) -> None:
     for split in ("train", "test"):
         normalize_stage(cfg, split)
         stats = block_stage(cfg, split)
+        block3_stage(cfg, split)
     learn_logodds_stage(cfg, max_pairs=20000)
     for split in ("train", "test"):
         features_stage(cfg, split)
