@@ -13,3 +13,4 @@ Max 5 per day. One row per leaderboard upload; the folder holds the exact files 
 | 07 | 20260926-1307 | `submissions/07_20260926-1307` | `c2042b9` | 0.9877 | | 0.981916 | SCORED | v4s: v4 + France pseudo-label self-training (stage-1 trained with rule/model-labelled France test pairs) |
 | 08 | 20260926-1750 | `submissions/08_20260926-1750` | `4a2d985` | 0.9882 | | pending | v5: v4 + stage-2 entity features (D-027) + initialism features + admin features dropped (French region/departement mismatch) |
 | 09 | 20260926-1804 | `submissions/09_20260926-1804` | `9e7f50a` | 0.9882 | | pending | variant of v5 (#8): France EM prior shift re-enabled (decision only) |
+| 10 | 20260926-2219 | `submissions/10_20260926-2219` | `a677223` | 0.9882 | | pending | v6-e5: v5 + stage-3 cross-encoder (multilingual-e5-small, MIT, fine-tuned on provided train data on Colab); holdout 0.98815 -> 0.98918 |
