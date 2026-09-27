@@ -276,3 +276,13 @@ core and phonetic names, >= 0.6) and keeps the top 3 (`blocking.v3_hs_crowd_cap/
 98.22% -> 98.31%) at +1.3% candidates; after the full retrain stage 2 holdout 0.9882 -> 0.9886, stage 3 India/US
 (--ctx, wide e5) 0.98971 -> 0.99008, France-method stage 3 0.98934 -> 0.98977. Cross-encoder scores are reused by
 (lid, rid); new pairs have none, the same in tune, holdout and test.
+
+### D-031 / D-032 France: context model, prior shift tuned on the leaderboard, e5 adaptation
+France has no labels, so each France change was checked on France-like holdout slices where possible and then on the
+public leaderboard. The context stage 3 wins every France-like slice (S1 names shared by >= 2 / 11 / 100 businesses,
+>= 15 / 25 candidates: +0.0002..+0.0006) and scored public 0.985971 (#17, from 0.985878). Applying the EM prior shift
+to France too (logit -0.56, removes 6,394 French pairs, 24x richer in the distractor house-number offsets) scored
+0.986121 (#18): France over-matches. `decision.shift_fixed` sets a fixed per-country shift to tune it further (#19 -1.0,
+#20 -1.5). D-031 (prepared): the saved e5 is fine-tuned on French pseudo-labels (p >= 0.995 matched / p <= 0.005) mixed
+with labelled train pairs (`export_fr_adapt.py`, `ce_colab_e5_adapt.ipynb`), and its French scores are swapped in
+rank-preserving (`swap_country_scores.py`, `run_fr_adapt.sh`).

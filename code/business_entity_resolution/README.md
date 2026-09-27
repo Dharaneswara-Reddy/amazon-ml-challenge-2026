@@ -76,6 +76,12 @@ ber validate-output --check-ids
 ber --override code/business_entity_resolution/configs/variant_x.yaml block3 --split train
 code/business_entity_resolution/run_x.sh   # block3 test, features, train, predict, stage 3 India/US + France, merge
 #   -> artifacts/out_x_final/{matching_results,candidate_pairs}.tsv
+# S10 France decision (D-032, tuned on the public leaderboard; France has no labels): stage 3 with context for
+#   every country, France gets a logit shift (#18: EM estimate -0.56 via variant_x_predict_frshift.yaml;
+#   #19/#20: fixed -1.0 / -1.5 via variant_x_predict_fr10.yaml / _fr15.yaml)
+ber --override code/business_entity_resolution/configs/variant_x_predict_frshift.yaml predict \
+    --run artifacts/runs/<v5x run> --stage3 artifacts/stage3_x_iu
+ber validate-output --check-ids
 ```
 The e5 bundle used band 0.003 < p < 0.997 (`export_bundle.py <run> <dir> 600000`), the bge bundle 0.001 < p < 0.999,
 the Qwen bundle 0.01 < p < 0.99. Submission #14 is v5 (`ber train --name v5`) + S7 + S8; India/US stage 3
