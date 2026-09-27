@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rebuild with blocking variant x (D-030): block3 test -> features -> train -> predict -> stage 3 (India/US ctx + wide e5,
-# France no-ctx) -> per-country merge into artifacts/out_x_final. output/ is restored to #14 at the end.
+# France no-ctx) -> per-country merge into artifacts/out_x_final, copied to output/.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 B=.venv/bin/ber; PY=.venv/bin/python; L=artifacts/logs; C=code/business_entity_resolution

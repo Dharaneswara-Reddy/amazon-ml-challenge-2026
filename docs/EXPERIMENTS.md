@@ -11,3 +11,4 @@
 | `stage3_all3rctx` (v5 + e5/bge/qwen stage 3 + S1-side and record-side competition of every score, empty-address and source flags; D-029) | threshold | 0.98972 | | | |
 | `stage3_final_iu` (v5 + stage 3 --ctx, e5 first + extended band, bge, qwen; fixed row order; holdout-lid rival rows excluded) | expected_f | 0.98971 | | | India/US rows of #14 |
 | `stage3_final_fr` (v5 + stage 3 without ctx, first-band e5/bge/qwen; as #12 with fixed row order) | threshold | 0.98934 | | | France rows of #14 |
+| `20260927T140904_774d279_e6b1b643_v5x` | expected_f | 0.9886 | 0.9870 / 0.9870 | 0.9793 | |
