@@ -286,3 +286,8 @@ to France too (logit -0.56, removes 6,394 French pairs, 24x richer in the distra
 #20 -1.5: 0.986182, the final submission). D-031 (prepared): the saved e5 is fine-tuned on French pseudo-labels (p >= 0.995 matched / p <= 0.005) mixed
 with labelled train pairs (`export_fr_adapt.py`, `ce_colab_e5_adapt.ipynb`), and its French scores are swapped in
 rank-preserving (`swap_country_scores.py`, `run_fr_adapt.sh`).
+D-031 result: the adapted French e5 scores (rank correlation 0.873 with the original) change 12,147 French S1 vs #20:
++10,887 pairs (0.32% generator-offset, 97.6% equal house numbers) and -1,598 pairs (13.9% generator-offset). The
+label-free profile is favourable, but the net addition runs against the leaderboard's France direction (fewer matches
+scored higher at every shift) and it could not be scored (uploads exhausted), so it is frozen as #22 and not used; the
+final submission is #20.
