@@ -1,0 +1,8 @@
+# variant x (see variant_x.yaml) with the big-memory predict engine settings (results unaffected by engine settings)
+engine:
+  duckdb_memory_limit: 9GB
+  duckdb_threads: 6
+blocking:
+  variant: x
+  v3_hs_crowd_cap: 500
+  v3_hs_crowd_k: 3
