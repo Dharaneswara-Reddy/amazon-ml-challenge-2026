@@ -65,12 +65,13 @@ the fit group only.
      transliterated names with truncated addresses ("vijn injiniyring, 601, mumbai"). Holdout recall 98.22% -> 98.31%.
   5. A linear ranker (logistic, fitted on the fit group) orders each right record's candidates; a small LightGBM
      **cut model** keeps "linear top-1 per right record OR cut probability ≥ 1e-3".
-- **Candidate pairs generated:** 17.9 M in train (8.1 per S1), 18.9 M in test (10.9 per S1); submitted in
+- **Candidate pairs generated (final):** 18.2 M in train (8.2 per S1), 19.4 M in test (11.2 per S1); submitted in
   `output/candidate_pairs.tsv`.
 - **How true matches were not lost:** recall is measured on every train run (a recall gate stops the pipeline below
-  94%). v2 passes reached 94.5%; the compound-key passes and learned cut raised it to **98.2% on train (98.2% on the
-  holdout group)** while *halving* candidates per S1 (14.1 → 8.1). The remaining misses are mostly records with an
-  empty address and a name shared by many S1, which no key can disambiguate.
+  94%). v2 passes reached 94.5%; the compound-key passes and learned cut raised it to 98.2% while *halving*
+  candidates per S1 (14.1 → 8.1), and the crowded-key pass to **98.28% on train (98.31% on the holdout group)** at
+  8.2 candidates per S1. The remaining misses are mostly records with an empty address and a name shared by many S1,
+  which no key can disambiguate.
 
 ---
 
