@@ -234,3 +234,14 @@ recovered 77% of the unseen-country gap with no in-domain cost; the EM prior shi
 ### D-026 France pseudo-label self-training — rejected
 Adding rule/model-labelled France test pairs to stage-1 training (`ber pseudo`, `train --extra-fit`) scored public
 0.981916 (#7), below #6; not used.
+
+### D-027 Stage-2 entity features, initialism features, admin features dropped (v5)
+Entity-level context from stage-1 scores (rank within the S1 entity, gaps, the right record's second choice) measured +0.0003
+holdout (research_notes/v5/K_india_us.md); initialism flags for French abbreviated names; admin_eq/admin_diff dropped because
+French region vs departement values make them misleading (measured neutral in-domain). Local holdout 0.9882.
+
+### D-028 Cross-encoder stage 3
+Organizers confirmed open-weight MIT/Apache models <= 8B, fine-tuned only on provided data, run offline, are allowed.
+intfloat/multilingual-e5-small (MIT, 117.7M) fine-tuned on 725k fit-group pairs (Colab T4) re-scores pairs with
+0.003 < p < 0.997; a LightGBM stage 3 on [logit p2, ce] cross-fitted on tune: holdout 0.98815 -> 0.98918 (+0.0010).
+Larger models (BAAI/bge-reranker-v2-m3 568M Apache-2.0; Qwen2.5-1.5B-Instruct LoRA Apache-2.0) prepared for Kaggle.
