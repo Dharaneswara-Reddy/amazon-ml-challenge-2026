@@ -118,7 +118,9 @@ distractor rate (India/US); it is disabled for France, where it was measured har
 | v4 | self-labelled per-country vocabularies | 0.9879 | 0.982191 |
 | v5 | stage-2 entity features, initialisms | 0.9882 | [pending] |
 | v5 + cross-encoder | multilingual-e5-small stage 3 | 0.98918 | 0.984041 |
-| **v5 + two cross-encoders** | + bge-reranker-v2-m3 | **0.98929** | **0.984453** |
+| v5 + two cross-encoders | + bge-reranker-v2-m3 | 0.98929 | 0.984453 |
+| v5 + bge + Qwen | bge-reranker + Qwen2.5-1.5B LoRA | 0.98939 | 0.984756 |
+| **v5 + three cross-encoders** | e5-small + bge-reranker + Qwen2.5-1.5B | **0.98937** | **0.985004** |
 
 - A leaderboard probe (France rows emptied) showed India+US public ≈ local holdout, so the local→public gap is
   essentially France, which improved from ≈0.92 to ≈0.95 with the self-labelled vocabularies.
