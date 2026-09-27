@@ -1,0 +1,34 @@
+per country: pairs, rights, per right, share lrank=1, share cut_p>=1e-3, >=1e-2, >=0.1
+[('US', 5835047, 3817031, 1.5286873488845125, 0.6541559990862112, 0.9673450787971374, 0.7324667650491933, 0.5188887081800713), ('India', 7742742, 4717565, 1.6412581490663085, 0.6092886731858042, 0.9539399608045832, 0.6942735532192601, 0.46838820149244287), ('France', 5346389, 1434993, 3.725724794476349, 0.2684041509138224, 0.9878286073085966, 0.583505988808521, 0.2868248082958423)]
+rights by #candidates (1,2,3,4-5,6-10,>10) share
+[('France', 0.2704626433717795, 0.16424330989767894, 0.17284962365670076, 0.18966991476613473, 0.17029072615685234, 0.0324837821508537), ('India', 0.6742516531303755, 0.16778337977325167, 0.08596256755338824, 0.053370753768098585, 0.016915294224880844, 0.0017163515500051405), ('US', 0.6917750995472659, 0.18513079930448562, 0.07814791129545451, 0.035331387143567865, 0.008537787615557747, 0.001077015093668351)]
+== non-best kept (lrank>1) mean / median per country
+France 3911396 {'cut_p': (0.067, 0.008999999612569809), 'jw_core': (0.827, 0.887), 'jw_addr': (0.746, 0.758), 'jacc_addr': (0.513, 0.5), 'jw_strip': (0.82, 0.88), 'jw_phn': (0.794, 0.834), 'tok_score': (15.78, 12.56), 'q3_score': (26.001, 22.686), 's_px': (6.695, 0.0), 's_hs': (3.793, 0.0), 's_n2': (1.769, 0.0), 's_na': (7.476, 0.0), 's_phx': (2.571, 0.0), 'n_pass': (0.731, 0.0), 'n_pass_new': (1.018, 1.0), 'in_v2': (0.409, 0.0), 'num_match': (0.347, 0.0), 'block_score': (-3.708, -3.878)}
+India 3025177 {'cut_p': (0.057, 0.006000000052154064), 'jw_core': (0.762, 0.849), 'jw_addr': (0.668, 0.708), 'jacc_addr': (0.459, 0.429), 'jw_strip': (0.754, 0.84), 'jw_phn': (0.757, 0.734), 'tok_score': (20.917, 21.049), 'q3_score': (22.667, 20.276), 's_px': (6.08, 0.0), 's_hs': (20.977, 0.0), 's_n2': (1.753, 0.0), 's_na': (4.663, 0.0), 's_phx': (1.467, 0.0), 'n_pass': (1.198, 1.0), 'n_pass_new': (0.925, 1.0), 'in_v2': (0.569, 1.0), 'num_match': (0.647, 1.0), 'block_score': (-3.91, -3.976)}
+US 2018016 {'cut_p': (0.037, 0.004999999888241291), 'jw_core': (0.735, 0.692), 'jw_addr': (0.682, 0.763), 'jacc_addr': (0.476, 0.545), 'jw_strip': (0.728, 0.683), 'jw_phn': (0.728, 0.685), 'tok_score': (16.91, 13.342), 'q3_score': (26.028, 21.31), 's_px': (3.136, 0.0), 's_hs': (9.921, 0.0), 's_n2': (3.214, 0.0), 's_na': (3.959, 0.0), 's_phx': (1.59, 0.0), 'n_pass': (1.42, 1.0), 'n_pass_new': (0.894, 1.0), 'in_v2': (0.612, 1.0), 'num_match': (0.442, 0.0), 'block_score': (-4.522, -4.507)}
+== lrank=1 mean / median per country
+France 1434993 {'cut_p': (0.63, 0.9700000286102295), 'jw_core': (0.901, 1.0), 'jw_addr': (0.828, 0.857), 'jacc_addr': (0.687, 0.667), 'jw_strip': (0.898, 1.0), 'jw_phn': (0.874, 1.0), 'tok_score': (21.242, 22.114), 'q3_score': (30.864, 30.439), 's_px': (35.252, 26.42799949645996), 's_hs': (15.439, 13.67199993133545), 's_n2': (9.816, 0.0), 's_na': (49.824, 50.95000076293945), 's_phx': (5.625, 0.0), 'n_pass': (3.163, 3.0), 'n_pass_new': (2.965, 3.0), 'in_v2': (0.839, 1.0), 'num_match': (0.74, 1.0), 'block_score': (0.379, 0.647)}
+India 4717565 {'cut_p': (0.573, 0.8090000152587891), 'jw_core': (0.911, 0.952), 'jw_addr': (0.865, 0.918), 'jacc_addr': (0.737, 0.813), 'jw_strip': (0.907, 0.952), 'jw_phn': (0.875, 0.956), 'tok_score': (28.916, 24.87), 'q3_score': (23.886, 21.029), 's_px': (65.662, 59.47200012207031), 's_hs': (47.64, 25.51099967956543), 's_n2': (8.131, 0.0), 's_na': (87.677, 76.97200012207031), 's_phx': (3.954, 0.0), 'n_pass': (3.754, 4.0), 'n_pass_new': (2.848, 3.0), 'in_v2': (0.894, 1.0), 'num_match': (0.812, 1.0), 'block_score': (1.119, 1.664)}
+US 3817031 {'cut_p': (0.609, 0.9129999876022339), 'jw_core': (0.931, 0.978), 'jw_addr': (0.916, 1.0), 'jacc_addr': (0.733, 0.75), 'jw_strip': (0.93, 0.98), 'jw_phn': (0.907, 1.0), 'tok_score': (23.197, 22.832), 'q3_score': (27.772, 26.876), 's_px': (38.636, 41.70899963378906), 's_hs': (22.675, 14.364999771118164), 's_n2': (20.086, 13.67199993133545), 's_na': (68.878, 66.98899841308594), 's_phx': (6.099, 0.0), 'n_pass': (4.387, 5.0), 'n_pass_new': (3.274, 3.0), 'in_v2': (0.935, 1.0), 'num_match': (0.595, 1.0), 'block_score': (0.731, 0.536)}
+pass membership among lrank>1 kept:
+Traceback (most recent call last):
+  File "/home/toji339/Documents/Amazon_ML_Hackathon/notebooks/v4_france/h06_cut.py", line 24, in <module>
+    print(con.execute("""SELECT country, avg(in_v2), avg(in_px), avg(in_hs), avg(in_n2), avg(in_na), avg(in_phx), avg(in_tok), avg(in_q3),
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.BinderException: Binder Error: No function matches the given name and argument types 'avg(BOOLEAN)'. You might need to add explicit type casts.
+	Candidate functions:
+	avg(DECIMAL) -> DECIMAL
+	avg(SMALLINT) -> DOUBLE
+	avg(INTEGER) -> DOUBLE
+	avg(BIGINT) -> DOUBLE
+	avg(HUGEINT) -> DOUBLE
+	avg(INTERVAL) -> INTERVAL
+	avg(DOUBLE) -> DOUBLE
+	avg(TIMESTAMP) -> TIMESTAMP
+	avg(TIMESTAMP WITH TIME ZONE) -> TIMESTAMP WITH TIME ZONE
+	avg(TIME) -> TIME
+	avg(TIME WITH TIME ZONE) -> TIME WITH TIME ZONE
+
+
+LINE 1: ..., avg(in_px), avg(in_hs), avg(in_n2), avg(in_na), avg(in_phx), avg(in_tok), avg(in_q3),
+                                                                          ^

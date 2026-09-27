@@ -1,0 +1,51 @@
+===== true
+Dolus Hilaire Construction SARL | dolus hilaire construction sarl | dolus hilaire construction | sarl |  | 30 bis Rue René Delissen, Dunkerque, Hauts-de-France | 30 bis rue rene delissen , dunkerque , hauts de france | 30 | 30 bis | rue rene delissen | dunkerque | 
+Roues & Fils SARL | roues and fils sarl | roues and fils | sarl |  | 7 Rue Balzac, Tourcoing, Hauts-de-France | 7 rue balzac , tourcoing , hauts de france | 7 | 7 | rue balzac | tourcoing | 
+Deleves Amis SAS | deleves amis sas | deleves amis | sas |  | Pays de la Loire, 13 Avenue du Printemps, Nantes | pays de la loire , 13 avenue du printemps , nantes | 13 | 13 | avenue du printemps | pays de la loire nantes | 
+Chasse Centre SARL | chasse center sarl | chasse center | sarl |  | 20 Allée de la Traine, Lège-Cap-Ferret, Nouvelle-Aquitaine | 20 allee de la traine , lege cap ferret , nouvelle aquitaine | 20 | 20 | allee de la traine | lege cap ferret | 
+Main Club EURL | main club eurl | main club | eurl |  | 26 Boulevard d'Halluin, Tourcoing, Hauts-de-France | 26 boulevard d halluin , tourcoing , hauts de france | 26 | 26 | boulevard d halluin | tourcoing | 
+OBC College SA | obc college sa | obc college | sa |  | 9 RUE Pierre Loti, Bordeaux, Nouvelle-Aquitaine | 9 rue pierre loti , bordeaux , nouvelle aquitaine | 9 | 9 | rue pierre loti | bordeaux | 
+Club des Arts | club des arts | club des arts |  |  | 2 Allée Jorge Semprùn, Pessac, Nouvelle-Aquitaine | 2 allee jorge semprun , pessac , nouvelle aquitaine | 2 | 2 | allee jorge semprun | pessac | 
+Loasis (France) Restaurant SAS | loasis france restaurant sas | loasis france restaurant | sas |  | Nouvelle-Aquitaine, Bordeaux, 18 Place de l'Église Saint-Augustin | nouvelle aquitaine , bordeaux , 18 place de leglise saint augustin | 18 | 18 | place de leglise saint augustin | bordeaux | 
+Lou Club | lou club | lou club |  |  | 18 Rue Paul Valéry, Bordeaux, Nouvelle-Aquitaine | 18 rue paul valery , bordeaux , nouvelle aquitaine | 18 | 18 | rue paul valery | bordeaux | 
+Nationale Atelier SARL | nationale atelier sarl | nationale atelier | sarl |  | 9 Rue Quintin, Bordeaux, Nouvelle-Aquitaine | 9 rue quintin , bordeaux , nouvelle aquitaine | 9 | 9 | rue quintin | bordeaux | 
+Developpement Botte Hotel SARL | developpement botte hotel sarl | developpement botte hotel | sarl |  | 36 RUE DE TAUZIA, LE CLOS MONTESQUIEU, Bordeaux, Nouvelle-Aquitaine | 36 rue de tauzia , le clos montesquieu , bordeaux , nouvelle aquitaine | 36 | 36 | rue de tauzia | le clos montesquieu bordeaux | 
+Deleves Amicale | deleves amicale | deleves amicale |  |  | 104 Avenue de Noès, Pessac, Nouvelle-Aquitaine | 104 avenue de noes , pessac , nouvelle aquitaine | 104 | 104 | avenue de noes | pessac | 
+===== regexp_matches(lower(business_name), '\b(sarl|sas|sasu|eurl|sci|snc|ei|sa)\b')
+Dolus Hilaire Construction SARL | dolus hilaire construction sarl | dolus hilaire construction | sarl |  | 30 bis Rue René Delissen, Dunkerque, Hauts-de-France | 30 bis rue rene delissen , dunkerque , hauts de france | 30 | 30 bis | rue rene delissen | dunkerque | 
+Roues & Fils SARL | roues and fils sarl | roues and fils | sarl |  | 7 Rue Balzac, Tourcoing, Hauts-de-France | 7 rue balzac , tourcoing , hauts de france | 7 | 7 | rue balzac | tourcoing | 
+Deleves Amis SAS | deleves amis sas | deleves amis | sas |  | Pays de la Loire, 13 Avenue du Printemps, Nantes | pays de la loire , 13 avenue du printemps , nantes | 13 | 13 | avenue du printemps | pays de la loire nantes | 
+Chasse Centre SARL | chasse center sarl | chasse center | sarl |  | 20 Allée de la Traine, Lège-Cap-Ferret, Nouvelle-Aquitaine | 20 allee de la traine , lege cap ferret , nouvelle aquitaine | 20 | 20 | allee de la traine | lege cap ferret | 
+Main Club EURL | main club eurl | main club | eurl |  | 26 Boulevard d'Halluin, Tourcoing, Hauts-de-France | 26 boulevard d halluin , tourcoing , hauts de france | 26 | 26 | boulevard d halluin | tourcoing | 
+OBC College SA | obc college sa | obc college | sa |  | 9 RUE Pierre Loti, Bordeaux, Nouvelle-Aquitaine | 9 rue pierre loti , bordeaux , nouvelle aquitaine | 9 | 9 | rue pierre loti | bordeaux | 
+Loasis (France) Restaurant SAS | loasis france restaurant sas | loasis france restaurant | sas |  | Nouvelle-Aquitaine, Bordeaux, 18 Place de l'Église Saint-Augustin | nouvelle aquitaine , bordeaux , 18 place de leglise saint augustin | 18 | 18 | place de leglise saint augustin | bordeaux | 
+Nationale Atelier SARL | nationale atelier sarl | nationale atelier | sarl |  | 9 Rue Quintin, Bordeaux, Nouvelle-Aquitaine | 9 rue quintin , bordeaux , nouvelle aquitaine | 9 | 9 | rue quintin | bordeaux | 
+===== regexp_matches(business_name, '[''’]')
+===== regexp_matches(lower(business_address), '\b(bis|ter)\b')
+Dolus Hilaire Construction SARL | dolus hilaire construction sarl | dolus hilaire construction | sarl |  | 30 bis Rue René Delissen, Dunkerque, Hauts-de-France | 30 bis rue rene delissen , dunkerque , hauts de france | 30 | 30 bis | rue rene delissen | dunkerque | 
+Gi Atelier SARL | gi atelier sarl | gi atelier | sarl |  | 22 bis Rue Paul Paulet, Pornic, Pays de la Loire | 22 bis rue paul paulet , pornic , pays de la loire | 22 | 22 bis | rue paul paulet | pornic pays de la loire | 
+Franck Club SAS | franck club sas | franck club | sas |  | 17 bis Allee des Bouvreuils, Nouvelle-Aquitaine, Lège-Cap-Ferret | 17 bis allee des bouvreuils , nouvelle aquitaine , lege cap ferret | 17 | 17 bis | allee des bouvreuils | lege cap ferret | 
+Danciens Culturelle | danciens culturelle | danciens culturelle |  |  | 122 BIS Boulevard Victor Hugo, Lille, Hauts-de-France | 122 bis boulevard victor hugo , lille , hauts de france | 122 | 122 bis | boulevard victor hugo | lille | 
+Motards (France) Loisirs SARL | motards france loisirs sarl | motards france loisirs | sarl |  | 56 Ter Rue de Coulmiers, Nantes, Pays de la Loire | 56 terrace rue de coulmiers , nantes , pays de la loire | 56 | 56 | terrace rue de coulmiers | nantes pays de la loire | 
+===== regexp_matches(lower(business_address), '\b(bd|av|all[ée]e|impasse|chemin|place|quai|cours)\b')
+Chasse Centre SARL | chasse center sarl | chasse center | sarl |  | 20 Allée de la Traine, Lège-Cap-Ferret, Nouvelle-Aquitaine | 20 allee de la traine , lege cap ferret , nouvelle aquitaine | 20 | 20 | allee de la traine | lege cap ferret | 
+Club des Arts | club des arts | club des arts |  |  | 2 Allée Jorge Semprùn, Pessac, Nouvelle-Aquitaine | 2 allee jorge semprun , pessac , nouvelle aquitaine | 2 | 2 | allee jorge semprun | pessac | 
+Loasis (France) Restaurant SAS | loasis france restaurant sas | loasis france restaurant | sas |  | Nouvelle-Aquitaine, Bordeaux, 18 Place de l'Église Saint-Augustin | nouvelle aquitaine , bordeaux , 18 place de leglise saint augustin | 18 | 18 | place de leglise saint augustin | bordeaux | 
+NXH Maison | nxh maison | nxh maison |  |  | 2 Allée des Troves, La Baule-Escoublac, Pays de la Loire | 2 allee des troves , la baule escoublac , pays de la loire | 2 | 2 | allee des troves | la baule escoublac pays de la loire | 
+VDP Club SARL | vdp club sarl | vdp club | sarl |  | Pays de la Loire, 16 Impasse de la Terre Adélie, Nantes | pays de la loire , 16 impasse de la terre adelie , nantes | 16 | 16 | impasse de la terre adelie | pays de la loire nantes | 
+Club de Compagnons | club de compagnons | club de compagnons |  |  | 33 Allée Claire Lacombe, Nantes, Pays de la Loire | 33 allee claire lacombe , nantes , pays de la loire | 33 | 33 | allee claire lacombe | nantes pays de la loire | 
+===== legal_form values in France S1: [('', 80611), ('sarl', 73388), ('sas', 52213), ('eurl', 16956), ('sa', 12737), ('sasu', 10708), ('sci', 8350), ('ei', 4175), ('co', 31), ('co sarl', 26), ('co sas', 16), ('lp sarl', 14), ('lp', 12), ('pa sarl', 12), ('pa sas', 11)]
+===== raw legal tokens present in France S1 names: [('sarl', 73486), ('sas', 52278), ('eurl', 16980), ('sa', 12767), ('sasu', 10721), ('sci', 8360), ('ei', 4204), ('association', 4008), ('scm', 2), ('gie', 1), ('snc', 1)]
+===== France right records sample:
+Unite Culture (France) SAS | unite culture france sas | unite culture france | sas | 6 BOULEVARD DES BATISSEURS, ROUBAIX | 6 boulevard des batisseurs , roubaix | 6
+Lège-Cap-Ferret Sportif SARL | lege cap ferret sportif sarl | lege cap ferret sportif | sarl |  |  | 
+Orientale Amis (France) S.A.S. | orientale amis france sas | orientale amis france | sas | 183 Rue Des Stations, Lille, Nord | 183 rue des stations , lille , nord | 183
+Locale [Culturelle] | locale culturelle | locale culturelle |  | 19 R. Gustave Jolivet, Lille, Nord | 19 rue gustave jolivet , lille , nord | 19
+Lbm Amicale SAS | lbm amicale sas | lbm amicale | sas | NO 19 R CHARLES JOSSE, ST.-HERBLAIN | 19 rue charles josse , saint herblain | 19
+Miracaloonyx trading as Art & Fils | art and fils | art and fils |  | 88 Cours Aristide Briand, Bordeaux, Nouvelle-Aquitaine | 88 cours aristide briand , bordeaux , nouvelle aquitaine | 88
+Peche Comite Sarl | peche comite sarl | peche comite | sarl | 55 Chemin Tournerond, Nantes | 55 chemin tournerond , nantes | 55
+Mérignac Collectif Sàrl | merignac collectif sarl | merignac collectif | sarl | Gironde, (4) R. LOUIS BERON, MÉRIGNAC | gironde , 4 rue louis beron , merignac | 4
+Groupe Dunkerque SAS | groupe dunkerque sas | groupe dunkerque | sas | 53 Rue Du Prbsident Wilson, Dunkerque, Nord | 53 rue du prbsident wilson , dunkerque , nord | 53
+CAISSE SCI HOLDING INSTITUT | caisse sci holding institut | caisse holding institut | sci | 188 COURS DE L'YSER, BORDEAUX, Gironde | 188 cours de l yser , bordeaux , gironde | 188
+Cine & Cie | cine and compagnie | cine and compagnie |  | N°5 CHEMIN DU MOULIN DE DUTRUCH, LA TESTE DE BUCH, Nouvelle-Aquitaine | 5 chemin du moulin de dutruch , la teste de buch , nouvelle aquitaine | 5
+École maternelle Etudiants | ecole maternelle etudiants | ecole maternelle etudiants |  | No 32 Ave Jean Paul Marat, Saint-herblain, Loire-Atlantique | 32 avenue jean paul marat , saint herblain , loire atlantique | 32

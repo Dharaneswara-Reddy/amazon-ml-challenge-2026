@@ -20,3 +20,4 @@ artifacts/
 *.egg-info/
 submissions/**/*.tsv
 .claude/worktrees/
+.tmp/

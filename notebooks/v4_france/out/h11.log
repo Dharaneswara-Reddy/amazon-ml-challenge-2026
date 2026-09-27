@@ -1,0 +1,5 @@
+kept n 60000 generator-word share 0.0001 -> est distractor share 0.0 top: [('sarl>groupe', 2), ('sas', 1), ('holding', 1), ('sci', 1)]
+removed_other n 25591 generator-word share 0.3933 -> est distractor share 0.866 top: [('snc', 2447), ('sci', 1675), ('eurl', 1671), ('participations', 1609), ('sasu', 1077), ('holding', 1062), ('sarl>eurl', 794), ('sarl>sasu', 792)]
+added n 27141 generator-word share 0.0015 -> est distractor share 0.003 top: [('participations', 14), ('holding', 6), ('amicale>college', 5), ('sarl>participations', 4), ('international', 2), ('eurl>developpement', 2), ('sci>groupe', 2), ('sarl>developpement', 2)]
+removed_numeq n 5392 generator-word share 0.1728 -> est distractor share 0.381 top: [('eurl', 176), ('sci', 138), ('sas', 122), ('participations', 118), ('snc', 100), ('sarl>sas', 91), ('sasu', 88), ('sarl>eurl', 75)]
+group sizes: Counter({'': 4428870, 'kept': 859395, 'added': 27141, 'removed_other': 25591, 'removed_numeq': 5392})
