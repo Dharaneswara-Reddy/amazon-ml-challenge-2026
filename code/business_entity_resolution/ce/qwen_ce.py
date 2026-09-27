@@ -4,6 +4,7 @@ provided train data (bundle train.parquet), run locally on one GPU (no hosted AP
 Setup on the GPU box (Kaggle T4 x2 / Colab T4 / any CUDA GPU):  pip install -U "transformers<5" peft pandas pyarrow
 Run:  python qwen_ce.py --bundle ./ber_ce --out ./out [--train-minutes 110] [--max-train 300000]
 Writes out/ce_<group>.parquet (lid, rid, ce logit) group by group, so a cut-off session keeps finished groups.
+Score only with a saved adapter (no training):  python qwen_ce.py --bundle ./ber_ext --out ./out --lora ./old_out/lora
 """
 
 import argparse
@@ -14,7 +15,7 @@ import time
 import numpy as np
 import pandas as pd
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 BASE = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -33,6 +34,7 @@ def main() -> None:
     ap.add_argument("--base", default=BASE)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--smoke", type=int, default=0, help="limit every file to N rows (pipeline check)")
+    ap.add_argument("--lora", default="", help="saved adapter dir: skip training and only score the bundle")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     torch.manual_seed(42)
@@ -49,6 +51,9 @@ def main() -> None:
         tok.pad_token = tok.eos_token
     model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=1, torch_dtype=load_dtype)
     model.config.pad_token_id = tok.pad_token_id
+    if args.lora:
+        score_only(args, tok, PeftModel.from_pretrained(model, args.lora).to(dev), dev, dtype)
+        return
     lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, task_type="SEQ_CLS",
                       target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"])
     model = get_peft_model(model, lora).to(dev)
@@ -99,6 +104,19 @@ def main() -> None:
             break
 
     net.eval()
+    score = make_scorer(net, enc, dev, dtype)
+    d = score(dv.iloc[:args.smoke] if args.smoke else dv)
+    dv = dv.iloc[:args.smoke] if args.smoke else dv
+    p = 1 / (1 + np.exp(-d))
+    yv = dv.label.values
+    ll = -np.mean(yv * np.log(np.clip(p, 1e-7, 1)) + (1 - yv) * np.log(np.clip(1 - p, 1e-7, 1)))
+    print(f"dev logloss {ll:.4f} acc {np.mean((p > 0.5) == yv):.4f}", flush=True)
+    model.save_pretrained(f"{args.out}/lora")
+    score_groups(args, score)
+
+
+def make_scorer(net, enc, dev: str, dtype):
+    """Return score(df) -> logits for all pairs of df (ta, tb), in length-sorted batches."""
 
     def score(df: pd.DataFrame, bs: int = 256) -> np.ndarray:
         """Logits for all pairs of df (length-sorted batches)."""
@@ -114,21 +132,36 @@ def main() -> None:
                     print(f"  {i}/{len(df)} {el / 60:.1f} min, eta {el / (i + bs) * (len(df) - i - bs) / 60:.1f} min", flush=True)
         return out
 
-    d = score(dv.iloc[:args.smoke] if args.smoke else dv)
-    dv = dv.iloc[:args.smoke] if args.smoke else dv
-    p = 1 / (1 + np.exp(-d))
-    yv = dv.label.values
-    ll = -np.mean(yv * np.log(np.clip(p, 1e-7, 1)) + (1 - yv) * np.log(np.clip(1 - p, 1e-7, 1)))
-    print(f"dev logloss {ll:.4f} acc {np.mean((p > 0.5) == yv):.4f}", flush=True)
-    model.save_pretrained(f"{args.out}/lora")
-    for g in ("holdout", "tune", "test"):
-        df = pd.read_parquet(f"{args.bundle}/score_{g}.parquet")
+    return score
+
+
+def score_groups(args, score) -> None:
+    """Score score_{tune,holdout,test}.parquet of the bundle (whichever exist) and write out/ce_<group>.parquet."""
+    for g in ("tune", "holdout", "test"):
+        path = f"{args.bundle}/score_{g}.parquet"
+        if not os.path.exists(path):
+            continue
+        df = pd.read_parquet(path)
         if args.smoke:
             df = df.iloc[:args.smoke].reset_index(drop=True)
         ce = score(df)
         pd.DataFrame({"lid": df.lid, "rid": df.rid, "ce": ce}).to_parquet(f"{args.out}/ce_{g}.parquet", index=False)
         print("wrote", g, len(df), flush=True)
     print("DONE", flush=True)
+
+
+def score_only(args, tok, model, dev: str, dtype) -> None:
+    """Score the bundle with a saved adapter (model already wrapped by PeftModel); no training."""
+    model.eval()
+    net = torch.nn.DataParallel(model) if dev == "cuda" and torch.cuda.device_count() > 1 else model
+    print("score only, gpus", torch.cuda.device_count() if dev == "cuda" else 0, flush=True)
+
+    def enc(a, b):
+        """Tokenize prompt-formatted pairs."""
+        return tok([PROMPT.format(a=x, b=y) for x, y in zip(a, b)], truncation=True, max_length=args.maxlen,
+                   padding=True, return_tensors="pt").to(dev)
+
+    score_groups(args, make_scorer(net, enc, dev, dtype))
 
 
 if __name__ == "__main__":

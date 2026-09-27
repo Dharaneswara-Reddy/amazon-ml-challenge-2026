@@ -8,3 +8,4 @@
 | `20260926T070539_1f9ad5d_99304c0b_v4s` | expected_f | 0.9877 | 0.9863 / 0.9864 | 0.9793 | |
 | `20260926T114709_10acc83_99304c0b_v5` | expected_f | 0.9882 | 0.9862 / 0.9863 | 0.9783 | |
 | `stage3_all3ctx` (v5 + e5/bge/qwen stage 3 + per-S1 rank/gap context of each score; not adopted, +0.00004 = noise) | threshold | 0.98942 | | | |
+| `stage3_all3rctx` (v5 + e5/bge/qwen stage 3 + S1-side and record-side competition of every score, empty-address and source flags; D-029) | threshold | 0.98972 | | | |
