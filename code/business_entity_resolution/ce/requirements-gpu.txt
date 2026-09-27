@@ -1,0 +1,6 @@
+# GPU side of the cross-encoder stage (D-028): used inside ce/*.ipynb on Colab/Kaggle GPUs and by ce/qwen_ce.py.
+# Versions used for the submitted runs (Colab/Kaggle images supply CUDA builds of torch).
+torch==2.14.0
+transformers==4.57.6
+peft==0.21.0
+pandas==3.0.6

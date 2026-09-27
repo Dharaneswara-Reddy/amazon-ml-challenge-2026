@@ -40,17 +40,29 @@ ber features --split train
 ber features --split test
 
 # S5 stage 1 + out-of-fold stage-1 + stage 2 LightGBM; decision rule chosen on tune; holdout scored
-ber train --name v4
+ber train --name v5
 
 # S6 test: stage 1 → stage 2 → per-country EM prior shift (none for France, D-025) → decision → output/*.tsv
 ber predict --run artifacts/runs/<run printed by train>
 ber validate-output --check-ids          # organizer validator must print PASS
+
+# S7 cross-encoder stage 3 (D-028; GPU notebooks, packages in ce/requirements-gpu.txt)
+python code/business_entity_resolution/ce/export_bundle.py artifacts/runs/<run> <bundle_dir> 1500000 0.001 0.999
+#   run ce/ce_colab.ipynb (multilingual-e5-small) and ce/ce_kaggle_bge.ipynb (bge-reranker-v2-m3) on a GPU with the
+#   bundle; each writes ce_tune/ce_holdout/ce_test.parquet
+python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <stage3_dir> e5=<e5_out> bge=<bge_out>
+ber --override code/business_entity_resolution/configs/predict_bigmem.yaml predict --run artifacts/runs/<run> --stage3 <stage3_dir>
+ber validate-output --check-ids
 ```
+The e5 bundle used band 0.003 < p < 0.997 (`export_bundle.py <run> <dir> 600000`), the bge bundle 0.001 < p < 0.999.
+The best leaderboard submission (#11, public 0.984453, local holdout 0.98929) is v5 (`ber train --name v5`) + stage 3
+with both cross-encoders.
+
 `scripts/run_v4.sh all` runs S3 → S6 and freezes the submission (after S1, S2 and S2b); `scripts/run_v3.sh all` runs
 S2b. Each stage is resumable (`train --resume <run>`, `predict --resume`). `ber learn-logodds` (label-learned
 vocabularies, D-013/D-021) is only needed when `features.self_vocab` is false.
 
-This sequence produced the best leaderboard submission (#6, public 0.982191, local holdout 0.9879); its exact code is
+Submission #6 (public 0.982191, local holdout 0.9879) used S1–S6 only; each submission's exact code is
 `submissions/06_*/code_*.zip` (git commit in `notes.md`). Other submissions and their commands are listed in
 `submissions/log.md`.
 
@@ -59,6 +71,9 @@ Outputs: `output/matching_results.tsv`, `output/candidate_pairs.tsv`. Every run 
 effect, metrics) and appends a row to `docs/EXPERIMENTS.md`.
 
 ## Models and licenses
+Cross-encoders (stage 3, D-028), open weights run inside the notebooks, fine-tuned only on the provided train data:
+`intfloat/multilingual-e5-small` (MIT, 117.7M params), `BAAI/bge-reranker-v2-m3` (Apache-2.0, 568M),
+`Qwen/Qwen2.5-1.5B-Instruct` + LoRA via PEFT (Apache-2.0, 1.54B). All far below the 8B limit; no hosted API is used.
 LightGBM (MIT) gradient-boosted trees only — the blocking cut model and two matching stages, each far below 8B
 parameters. No pretrained language model. Libraries: DuckDB (MIT), PyArrow (Apache-2.0), NumPy (BSD), rapidfuzz (MIT),
 anyascii (ISC), PyYAML (MIT).
