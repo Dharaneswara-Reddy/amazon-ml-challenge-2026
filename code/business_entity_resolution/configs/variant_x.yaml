@@ -1,0 +1,9 @@
+# Blocking variant x (D-030): hs pass also joins crowded number x address-word keys (50 < df <= 500) for short-address
+# right records, ranked by name similarity (top 3). Writes cand3x_*, feat_v5x_*, learned/cut_model_x.txt; the default
+# files (#14) are untouched. Big-memory engine settings for predict.
+engine:
+  duckdb_memory_limit: 8GB
+blocking:
+  variant: x
+  v3_hs_crowd_cap: 500
+  v3_hs_crowd_k: 3

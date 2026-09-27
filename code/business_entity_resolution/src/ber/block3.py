@@ -128,11 +128,16 @@ def load_tables(
     return {"n_left": n[0], "n_right": n[1], "v2_pairs": n[2]}
 
 
-def run_passes(con: duckdb.DuckDBPyConnection, passes: list[str], buckets: int = 8) -> dict[str, Any]:
+def run_passes(
+    con: duckdb.DuckDBPyConnection, passes: list[str], buckets: int = 8, crowd: tuple[int, int] | None = None
+) -> dict[str, Any]:
     """Run the compound-key passes: tables cand_<pass>(lid, rid, s) with the top-k left ids per right.
 
     Keys are country-scoped and hashed; a key is kept when its left document frequency <= the pass cap; a pair's
     score is the summed ln(1 + NL / df) of its shared keys. Right records are processed in ``buckets`` hash buckets.
+    crowd: optional (df_cap, k) for the hs pass (D-030): keys above the hs cap but with df <= df_cap are also joined
+    for right records with a short address (<= 6 tokens), ranked by name similarity (Jaro-Winkler of the core names
+    plus of the phonetic names), and the top k per right with core-name JW >= 0.6 are added to cand_hs.
     """
     nl = con.execute("SELECT count(*) FROM L").fetchone()[0]
     stats: dict[str, Any] = {}
@@ -154,11 +159,38 @@ def run_passes(con: duckdb.DuckDBPyConnection, passes: list[str], buckets: int =
                 JOIN Lkf l USING (k) GROUP BY ALL)
                 QUALIFY row_number() OVER (PARTITION BY rid ORDER BY s DESC, lid) <= {k}"""
             con.execute(f"CREATE TABLE cand_{name} AS {body}" if b == 0 else f"INSERT INTO cand_{name} {body}")
+        if name == "hs" and crowd:
+            _crowd_hs(con, sql, cap, crowd, nl, buckets)
         con.execute("DROP TABLE Lkf")
         stats[f"{name}_pairs"] = con.execute(f"SELECT count(*) FROM cand_{name}").fetchone()[0]
         stats[f"{name}_s"] = round(time.time() - t, 1)
         log.info("block3 pass=%s pairs=%s seconds=%s", name, stats[f"{name}_pairs"], stats[f"{name}_s"])
     return stats
+
+
+def _crowd_hs(con: duckdb.DuckDBPyConnection, sql: str, cap: int, crowd: tuple[int, int], nl: int, buckets: int) -> None:
+    """Add name-ranked pairs from crowded hs keys (cap < df <= crowd cap) for short-address right records to cand_hs."""
+    ccap, k = crowd
+    con.execute(f"""CREATE OR REPLACE TEMP TABLE Lc AS SELECT l.iid, l.k, ln(1 + {nl}::DOUBLE / d.df) AS idf
+                    FROM (SELECT DISTINCT iid, hash(c || '|' || key) AS k FROM ({sql.format(T='L')})) l
+                    JOIN (SELECT k, count(*) AS df FROM (SELECT DISTINCT iid, hash(c || '|' || key) AS k
+                          FROM ({sql.format(T='L')})) GROUP BY k HAVING count(*) > {cap} AND count(*) <= {ccap}) d
+                    USING (k)""")
+    short = "len(list_filter(string_split(addr_norm, ' '), x -> x NOT IN ('', ','))) <= 6"
+    for b in range(buckets):
+        right = f"(SELECT * FROM R WHERE iid % {buckets} = {b} AND {short})"
+        con.execute(f"""INSERT INTO cand_hs SELECT lid, rid, s FROM (
+            SELECT p.lid, p.rid, p.s, jaro_winkler_similarity(l.name_core, r.name_core) AS jc,
+                   jaro_winkler_similarity(l.phn, r.phn) AS jp
+            FROM (SELECT l.iid AS lid, r.iid AS rid, max(l.idf) AS s
+                  FROM (SELECT DISTINCT iid, hash(c || '|' || key) AS k FROM ({sql.format(T=right)})) r
+                  JOIN Lc l USING (k) GROUP BY ALL) p
+            JOIN L l ON l.iid = p.lid JOIN R r ON r.iid = p.rid
+            WHERE jaro_winkler_similarity(l.name_core, r.name_core) >= 0.6)
+            QUALIFY row_number() OVER (PARTITION BY rid ORDER BY jc + jp DESC, lid) <= {k}""")
+    con.execute("CREATE OR REPLACE TABLE cand_hs AS SELECT lid, rid, max(s) AS s FROM cand_hs GROUP BY lid, rid")
+    con.execute("DROP TABLE Lc")
+    log.info("block3 hs crowd pass cap=%d k=%d", ccap, k)
 
 
 def build_union(con: duckdb.DuckDBPyConnection, out_dir: Path, ranker_path: str | None, buckets: int = 8) -> int:

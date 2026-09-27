@@ -53,17 +53,22 @@ def cand_path(cfg: Config, split: str) -> Path:
     return io.cache_dir(cfg) / f"cand_{split}.parquet"
 
 
+def variant(cfg: Config) -> str:
+    """Blocking variant tag (``blocking.variant``, D-030): suffix of candidate / feature / cut-model files ('' = default)."""
+    return str(cfg.get("blocking", {}).get("variant", "") or "")
+
+
 def model_cand_path(cfg: Config, split: str) -> Path:
     """Candidates the model scores: blocking v3 output (cand3_*) when ``blocking.v3`` is on, else v2 candidates."""
     if bool(cfg.get("blocking", {}).get("v3", False)):
-        return io.cache_dir(cfg) / f"cand3_{split}.parquet"
+        return io.cache_dir(cfg) / f"cand3{variant(cfg)}_{split}.parquet"
     return cand_path(cfg, split)
 
 
 def feat_path(cfg: Config, split: str, group: str | None = None) -> Path:
     """Path of a feature parquet (train: one per group incl. rival context; test: one file)."""
     suffix = f"_{group}" if group else ""
-    return io.cache_dir(cfg) / f"feat_{FEATURE_SET_VERSION}_{split}{suffix}.parquet"
+    return io.cache_dir(cfg) / f"feat_{FEATURE_SET_VERSION}{variant(cfg)}_{split}{suffix}.parquet"
 
 
 def learned_dir(cfg: Config) -> Path:
@@ -236,7 +241,8 @@ def block3_stage(cfg: Config, split: str) -> dict[str, Any]:
     db.unlink(missing_ok=True)
     con = connect(cfg, db)
     out = model_cand_path(cfg, split)
-    model = learned_dir(cfg) / "cut_model.txt"
+    tag = f"_{variant(cfg)}" if variant(cfg) else ""
+    model = learned_dir(cfg) / f"cut_model{tag}.txt"
     stats: dict[str, Any] = {}
     try:
         with stage("block3", split=split) as st:
@@ -245,7 +251,8 @@ def block3_stage(cfg: Config, split: str) -> dict[str, Any]:
                 con, str(norm_path(cfg, split, 1)), [str(norm_path(cfg, split, s)) for s in (2, 3)],
                 str(cand_path(cfg, split)), gt,
             ))
-            stats.update(block3.run_passes(con, block3.PASSES_V3))
+            crowd = (int(bsec["v3_hs_crowd_cap"]), int(bsec.get("v3_hs_crowd_k", 3))) if bsec.get("v3_hs_crowd_cap") else None
+            stats.update(block3.run_passes(con, block3.PASSES_V3, crowd=crowd))
             ranker = learned_dir(cfg) / "ranker.json"
             stats["union_rows"] = block3.build_union(con, union_dir, str(ranker) if ranker.exists() else None)
             for p in block3.PASSES_V3:
