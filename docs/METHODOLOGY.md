@@ -11,7 +11,7 @@ We built a staged entity-resolution pipeline: rule-based normalization → multi
 passes, sorted-neighbourhood keys, compound-key passes and a learned candidate cut, 98.2% recall at ~8 candidates per
 Source-1 entity) → a two-stage LightGBM matcher over 147 hand-built pair features and out-of-fold "competition"
 context → a transformer cross-encoder (multilingual-e5-small, MIT, fine-tuned only on the provided train pairs)
-re-scoring the uncertain pairs → a macro-F0.5-optimal decision rule. Key innovations: reverse-engineering the dataset's
+and a bge-reranker-v2-m3 cross-encoder (Apache-2.0) re-scoring the uncertain pairs → a macro-F0.5-optimal decision rule. Key innovations: reverse-engineering the dataset's
 **distractor generator** (house numbers nudged by a fixed offset set, name edits from small vocabularies) into features,
 **self-labelled per-country vocabularies** that transfer to France (unseen in training) without labels, and a
 **leakage-free decision layer** tuned for macro F0.5 on a separate entity group.
@@ -93,7 +93,9 @@ the fit group only.
   right record's other candidates, its rank within the entity, entity-level sums and gaps).
 - Stage 3: **cross-encoder** `intfloat/multilingual-e5-small` (MIT, 117.7 M parameters) fine-tuned for 2 epochs on
   725 k fit-group pairs (on a free Colab T4, in-notebook, no API); it re-scores the 1.7 M uncertain pairs
-  (0.003 < p < 0.997); a small LightGBM combines logit(stage-2 p) with the cross-encoder score, cross-fitted on tune.
+  (0.003 < p < 0.997). A second cross-encoder, `BAAI/bge-reranker-v2-m3` (Apache-2.0, 568 M; a multilingual reranker),
+  fine-tuned on 1 M fit-group pairs on a free GPU notebook, re-scores 2.2 M pairs (0.001 < p < 0.999). A small LightGBM
+  combines logit(stage-2 p) with both cross-encoder scores, cross-fitted on tune.
 - All models are MIT/Apache-2.0 licensed and far below 8 B parameters.
 
 **Threshold selection method:** one-to-one assignment (each right record to its best S1), then a decision rule chosen
@@ -115,7 +117,8 @@ distractor rate (India/US); it is disabled for France, where it was measured har
 | v3 + French adaptation | transductive French vocabulary | — | 0.981323 |
 | v4 | self-labelled per-country vocabularies | 0.9879 | 0.982191 |
 | v5 | stage-2 entity features, initialisms | 0.9882 | [pending] |
-| **v5 + cross-encoder** | multilingual-e5-small stage 3 | **0.98918** | **0.984041** |
+| v5 + cross-encoder | multilingual-e5-small stage 3 | 0.98918 | 0.984041 |
+| **v5 + two cross-encoders** | + bge-reranker-v2-m3 | **0.98929** | **0.984453** |
 
 - A leaderboard probe (France rows emptied) showed India+US public ≈ local holdout, so the local→public gap is
   essentially France, which improved from ≈0.92 to ≈0.95 with the self-labelled vocabularies.
