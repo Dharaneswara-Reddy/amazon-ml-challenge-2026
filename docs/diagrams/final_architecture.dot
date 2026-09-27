@@ -1,8 +1,8 @@
-// Final architecture of the submitted solution (#11, public 0.984453, local holdout 0.98929).
+// Final architecture of the submitted solution (#12, public 0.985004, local holdout 0.98937).
 // Render: dot -Tpng -Gdpi=180 final_architecture.dot -o final_architecture.png
 digraph arch {
   graph [rankdir=TB, fontname="Helvetica", fontsize=22, labelloc=t, nodesep=0.35, ranksep=0.45, pad=0.4,
-         label=<<B>Business Entity Resolution — final architecture</B><BR/><FONT POINT-SIZE="15">Amazon ML Challenge 2026 · submission #11 · public macro F0.5 0.984453 · local holdout 0.98929</FONT>>];
+         label=<<B>Business Entity Resolution — final architecture</B><BR/><FONT POINT-SIZE="15">Amazon ML Challenge 2026 · submission #12 · public macro F0.5 0.985004 · local holdout 0.98937</FONT>>];
   node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=13, penwidth=1.4, margin="0.18,0.08"];
   edge  [color="#555555", penwidth=1.4, arrowsize=0.8, fontname="Helvetica", fontsize=11];
 
@@ -34,8 +34,8 @@ digraph arch {
     label=<<B>4 · Matching models</B>>; style="rounded,filled"; fillcolor="#f8f5fc"; color="#ce93d8"; fontsize=15;
     s1 [label=<<B>Stage 1 · LightGBM</B><BR/>147 features · lr 0.2 · early stop on tune<BR/>+ out-of-fold predictions for stacking>, fillcolor="#f3e5f5", color="#ab47bc"];
     s2 [label=<<B>Stage 2 · LightGBM (stacking)</B><BR/>competition features: margin over the record's rivals,<BR/>rank and gaps within the business, entity sums>, fillcolor="#f3e5f5", color="#ab47bc"];
-    ce [label=<<B>Cross-encoders on uncertain pairs</B> (GPU notebooks, fine-tuned on train only)<BR/>multilingual-e5-small (MIT, 118 M) · 1.7 M pairs<BR/>bge-reranker-v2-m3 (Apache-2.0, 568 M) · 2.2 M pairs>, fillcolor="#ede7f6", color="#7e57c2"];
-    s3 [label=<<B>Stage 3 · LightGBM combiner</B><BR/>logit(stage-2 p) + both cross-encoder scores<BR/>cross-fitted on the tune group>, fillcolor="#e1bee7", color="#8e24aa"];
+    ce [label=<<B>Cross-encoders on uncertain pairs</B> (GPU notebooks, fine-tuned on train only)<BR/>multilingual-e5-small (MIT, 118 M) · 1.7 M pairs<BR/>bge-reranker-v2-m3 (Apache-2.0, 568 M) · 2.2 M pairs<BR/>Qwen2.5-1.5B-Instruct + LoRA classifier (Apache-2.0, 1.54 B)>, fillcolor="#ede7f6", color="#7e57c2"];
+    s3 [label=<<B>Stage 3 · LightGBM combiner</B><BR/>logit(stage-2 p) + three cross-encoder scores<BR/>cross-fitted on the tune group>, fillcolor="#e1bee7", color="#8e24aa"];
   }
 
   subgraph cluster_dec {

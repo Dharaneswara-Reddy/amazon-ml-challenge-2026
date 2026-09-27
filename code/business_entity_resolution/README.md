@@ -48,15 +48,16 @@ ber validate-output --check-ids          # organizer validator must print PASS
 
 # S7 cross-encoder stage 3 (D-028; GPU notebooks, packages in ce/requirements-gpu.txt)
 python code/business_entity_resolution/ce/export_bundle.py artifacts/runs/<run> <bundle_dir> 1500000 0.001 0.999
-#   run ce/ce_colab.ipynb (multilingual-e5-small) and ce/ce_kaggle_bge.ipynb (bge-reranker-v2-m3) on a GPU with the
-#   bundle; each writes ce_tune/ce_holdout/ce_test.parquet
-python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <stage3_dir> e5=<e5_out> bge=<bge_out>
+#   run ce/ce_colab.ipynb (multilingual-e5-small), ce/ce_kaggle_bge.ipynb (bge-reranker-v2-m3) and
+#   ce/ce_kaggle_qwen.ipynb (Qwen2.5-1.5B-Instruct + LoRA, runs ce/qwen_ce.py) on a GPU with the bundle;
+#   each writes ce_tune/ce_holdout/ce_test.parquet
+python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <stage3_dir> e5=<e5_out> bge=<bge_out> qwen=<qwen_out>
 ber --override code/business_entity_resolution/configs/predict_bigmem.yaml predict --run artifacts/runs/<run> --stage3 <stage3_dir>
 ber validate-output --check-ids
 ```
-The e5 bundle used band 0.003 < p < 0.997 (`export_bundle.py <run> <dir> 600000`), the bge bundle 0.001 < p < 0.999.
-The best leaderboard submission (#11, public 0.984453, local holdout 0.98929) is v5 (`ber train --name v5`) + stage 3
-with both cross-encoders.
+The e5 bundle used band 0.003 < p < 0.997 (`export_bundle.py <run> <dir> 600000`), the bge bundle 0.001 < p < 0.999,
+the Qwen bundle 0.01 < p < 0.99. The best leaderboard submission (#12, public 0.985004, local holdout 0.98937) is v5
+(`ber train --name v5`) + stage 3 with all three cross-encoders.
 
 `scripts/run_v4.sh all` runs S3 → S6 and freezes the submission (after S1, S2 and S2b); `scripts/run_v3.sh all` runs
 S2b. Each stage is resumable (`train --resume <run>`, `predict --resume`). `ber learn-logodds` (label-learned
