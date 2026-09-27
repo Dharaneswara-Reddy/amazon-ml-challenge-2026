@@ -151,6 +151,7 @@ features → train → predict`; then `ce/export_bundle.py` → `ce/ce_colab.ipy
 `ber predict --stage3`. Every run writes a manifest (git commit, config, metrics) under `artifacts/runs/`.
 
 ### B. Additional Results
+- Architecture diagram: `docs/diagrams/final_architecture.png` (source `final_architecture.dot`).
 - Blocking recall by pass and the cut rules: `research_notes/v3/B_blocking_recall.md`, `E_proof_end_to_end.md`.
 - Distractor generator analysis: `research_notes/v3/F_generator_signature.md`.
 - France analyses and the unseen-country simulation: `research_notes/v4/`, `research_notes/v5/`.

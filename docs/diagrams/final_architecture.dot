@@ -1,0 +1,62 @@
+// Final architecture of the submitted solution (#11, public 0.984453, local holdout 0.98929).
+// Render: dot -Tpng -Gdpi=180 final_architecture.dot -o final_architecture.png
+digraph arch {
+  graph [rankdir=TB, fontname="Helvetica", fontsize=22, labelloc=t, nodesep=0.35, ranksep=0.45, pad=0.4,
+         label=<<B>Business Entity Resolution — final architecture</B><BR/><FONT POINT-SIZE="15">Amazon ML Challenge 2026 · submission #11 · public macro F0.5 0.984453 · local holdout 0.98929</FONT>>];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=13, penwidth=1.4, margin="0.18,0.08"];
+  edge  [color="#555555", penwidth=1.4, arrowsize=0.8, fontname="Helvetica", fontsize=11];
+
+  input [label=<<B>Raw data (organizer TSVs only)</B><BR/>Source 1: 1.73 M businesses (test) · Sources 2+3: 9.97 M records<BR/>India 47% · US 38% · France 15% (France never in train)>, fillcolor="#eceff1", color="#607d8b"];
+
+  subgraph cluster_norm {
+    label=<<B>1 · Normalization</B>>; style="rounded,filled"; fillcolor="#f3f8fd"; color="#90caf9"; fontsize=15;
+    norm [label=<Names: legal forms split off (Pvt/Ltd/SARL/SAS…), accents, Indic scripts transliterated,<BR/>consonant skeleton · Addresses: house / unit / street / city / admin parsed, numbers extracted<BR/><FONT POINT-SIZE="11">learned maps from train data only (legal-form token map, admin vocabulary)</FONT>>, fillcolor="#e3f2fd", color="#42a5f5"];
+  }
+
+  subgraph cluster_block {
+    label=<<B>2 · Candidate generation (blocking)</B>>; style="rounded,filled"; fillcolor="#f3fbf4"; color="#a5d6a7"; fontsize=15;
+    b2 [label=<<B>Blocking v2</B><BR/>IDF token pass · char-trigram pass<BR/>6 sorted-neighbourhood keys · name-only window<BR/>linear ranker → top-3 per record>, fillcolor="#e8f5e9", color="#66bb6a"];
+    b3 [label=<<B>Blocking v3 · compound keys</B><BR/>name-prefix × address token · number × street word<BR/>name-word pairs · name × address word · phonetic name<BR/><FONT POINT-SIZE="11">rare combinations of common tokens</FONT>>, fillcolor="#e8f5e9", color="#66bb6a"];
+    cut [label=<<B>Learned cut</B> (LightGBM)<BR/>keep linear top-1 OR p ≥ 0.001<BR/><B>recall 98.2%</B> · 8.1 candidates / S1 (train) · 18.9 M test pairs>, fillcolor="#c8e6c9", color="#43a047"];
+    {rank=same; b2; b3}
+  }
+
+  subgraph cluster_feat {
+    label=<<B>3 · Pair features (147)</B>>; style="rounded,filled"; fillcolor="#fffaf0"; color="#ffcc80"; fontsize=15;
+    fs [label=<<B>String similarity</B><BR/>name / core / skeleton / address:<BR/>ratio, Jaro-Winkler, token-set/sort,<BR/>token alignment, initialisms>, fillcolor="#fff3e0", color="#ffa726"];
+    fg [label=<<B>Distractor signature (46)</B><BR/>house number nudged by generator offset<BR/>{+1…+5,+7,+9,+11,+13,+21}, legal-form swaps,<BR/>inserted words, digit drops>, fillcolor="#fff3e0", color="#ffa726"];
+    fv [label=<<B>Self-labelled per-country vocab</B><BR/>edit-token log-odds learned without labels<BR/>India/US from train · France from test<BR/>(transfers to the unseen country)>, fillcolor="#fff3e0", color="#ffa726"];
+    fc [label=<<B>Context</B><BR/>blocking passes and scores, cut p,<BR/>candidate counts / ranks,<BR/>crowded-name frequencies>, fillcolor="#fff3e0", color="#ffa726"];
+    {rank=same; fs; fg; fv; fc}
+  }
+
+  subgraph cluster_model {
+    label=<<B>4 · Matching models</B>>; style="rounded,filled"; fillcolor="#f8f5fc"; color="#ce93d8"; fontsize=15;
+    s1 [label=<<B>Stage 1 · LightGBM</B><BR/>147 features · lr 0.2 · early stop on tune<BR/>+ out-of-fold predictions for stacking>, fillcolor="#f3e5f5", color="#ab47bc"];
+    s2 [label=<<B>Stage 2 · LightGBM (stacking)</B><BR/>competition features: margin over the record's rivals,<BR/>rank and gaps within the business, entity sums>, fillcolor="#f3e5f5", color="#ab47bc"];
+    ce [label=<<B>Cross-encoders on uncertain pairs</B> (GPU notebooks, fine-tuned on train only)<BR/>multilingual-e5-small (MIT, 118 M) · 1.7 M pairs<BR/>bge-reranker-v2-m3 (Apache-2.0, 568 M) · 2.2 M pairs>, fillcolor="#ede7f6", color="#7e57c2"];
+    s3 [label=<<B>Stage 3 · LightGBM combiner</B><BR/>logit(stage-2 p) + both cross-encoder scores<BR/>cross-fitted on the tune group>, fillcolor="#e1bee7", color="#8e24aa"];
+  }
+
+  subgraph cluster_dec {
+    label=<<B>5 · Decision (macro F0.5)</B>>; style="rounded,filled"; fillcolor="#fdf3f3"; color="#ef9a9a"; fontsize=15;
+    oto [label=<<B>One-to-one</B><BR/>each record goes to its best business>, fillcolor="#ffebee", color="#ef5350"];
+    rule [label=<<B>Decision rule chosen on tune</B><BR/>global threshold vs expected-F0.5 top-k per business<BR/>(isotonic calibration, singleton model)>, fillcolor="#ffebee", color="#ef5350"];
+    shift [label=<<B>Per-country EM prior shift</B><BR/>India/US corrected for more distractors in test<BR/>France: no shift (unseen country)>, fillcolor="#ffebee", color="#ef5350"];
+  }
+
+  out [label=<<B>output/matching_results.tsv</B> + <B>output/candidate_pairs.tsv</B><BR/>1,732,544 rows · validated by the organizer validator>, fillcolor="#eceff1", color="#607d8b"];
+
+  val [shape=note, style="filled", fillcolor="#fffde7", color="#fbc02d", fontsize=12,
+       label=<<B>Validation (no leakage)</B><BR ALIGN="LEFT"/>S1 split by md5 bucket:<BR ALIGN="LEFT"/>• fit 30% (2 folds for out-of-fold)<BR ALIGN="LEFT"/>• tune 5% (early stop, calibration, rule)<BR ALIGN="LEFT"/>• holdout 5% (scored once)<BR ALIGN="LEFT"/>All learned tables fitted on fit only.<BR ALIGN="LEFT"/>>];
+
+  input -> norm;
+  norm -> b2; norm -> b3;
+  b2 -> cut; b3 -> cut;
+  cut -> fs; cut -> fg; cut -> fv; cut -> fc;
+  fs -> s1; fg -> s1; fv -> s1; fc -> s1;
+  s1 -> s2;
+  s2 -> ce [label="  0.001 < p < 0.999"];
+  s2 -> s3; ce -> s3;
+  s3 -> oto -> rule -> shift -> out;
+}
