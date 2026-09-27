@@ -20,5 +20,5 @@ step stage3 fr;       $PY $C/ce/stage3.py $RUN artifacts/stage3_x_fr e5=$R/colab
 $B --override $XP predict --run $RUN --stage3 artifacts/stage3_x_fr --log-file $L/x_predict_fr.log > $L/x_predict_fr.json
 mkdir -p artifacts/out_x_fr && cp output/*.tsv artifacts/out_x_fr/
 step merge;           $PY $C/ce/merge_by_country.py artifacts/out_x_iu artifacts/out_x_fr artifacts/out_x_final France
-cp submissions/14_20260927-1713/*.tsv output/
+cp artifacts/out_x_final/*.tsv output/   # final submission (#16): the per-country merged output
 step "ALL DONE"
