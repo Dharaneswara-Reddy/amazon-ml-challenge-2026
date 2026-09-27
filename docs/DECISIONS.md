@@ -282,7 +282,7 @@ France has no labels, so each France change was checked on France-like holdout s
 public leaderboard. The context stage 3 wins every France-like slice (S1 names shared by >= 2 / 11 / 100 businesses,
 >= 15 / 25 candidates: +0.0002..+0.0006) and scored public 0.985971 (#17, from 0.985878). Applying the EM prior shift
 to France too (logit -0.56, removes 6,394 French pairs, 24x richer in the distractor house-number offsets) scored
-0.986121 (#18): France over-matches. `decision.shift_fixed` sets a fixed per-country shift to tune it further (#19 -1.0,
-#20 -1.5). D-031 (prepared): the saved e5 is fine-tuned on French pseudo-labels (p >= 0.995 matched / p <= 0.005) mixed
+0.986121 (#18): France over-matches. `decision.shift_fixed` sets a fixed per-country shift to tune it further (#19 -1.0: 0.986161,
+#20 -1.5: 0.986182, the final submission). D-031 (prepared): the saved e5 is fine-tuned on French pseudo-labels (p >= 0.995 matched / p <= 0.005) mixed
 with labelled train pairs (`export_fr_adapt.py`, `ce_colab_e5_adapt.ipynb`), and its French scores are swapped in
 rank-preserving (`swap_country_scores.py`, `run_fr_adapt.sh`).

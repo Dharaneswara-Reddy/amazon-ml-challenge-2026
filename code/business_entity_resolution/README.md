@@ -79,7 +79,8 @@ code/business_entity_resolution/run_x.sh   # block3 test, features, train, predi
 # S10 France decision (D-032, tuned on the public leaderboard; France has no labels): stage 3 with context for
 #   every country, France gets a logit shift (#18: EM estimate -0.56 via variant_x_predict_frshift.yaml;
 #   #19/#20: fixed -1.0 / -1.5 via variant_x_predict_fr10.yaml / _fr15.yaml)
-ber --override code/business_entity_resolution/configs/variant_x_predict_frshift.yaml predict \
+#   final submission #20 (public 0.986182) = France shift -1.5:
+ber --override code/business_entity_resolution/configs/variant_x_predict_fr15.yaml predict \
     --run artifacts/runs/<v5x run> --stage3 artifacts/stage3_x_iu
 ber validate-output --check-ids
 ```
