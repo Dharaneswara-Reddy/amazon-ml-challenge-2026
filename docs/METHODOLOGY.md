@@ -1,7 +1,7 @@
 # ML Challenge 2026: Business Entity Resolution Solution
 
-**Team Name:** [Your Team Name]
-**Team Members:** [List all team members]
+**Team Name:** Straw Hat Coders
+**Team Members:** Venkata Karthik Kandagaddala, Venkata Dharaneswara Reddy Palle, Kuppam Bhargav Reddy (Amrita Vishwa Vidyapeetham (AVV), Bengaluru)
 **Submission Date:** 27 September 2026
 
 ---
