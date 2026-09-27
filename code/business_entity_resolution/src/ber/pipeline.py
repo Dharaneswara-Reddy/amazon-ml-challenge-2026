@@ -841,11 +841,14 @@ def predict_stage(
             groups = list(enumerate(countries)) if per_country else [(-1, "all")]
             # D-025: no EM shift for a country unseen in training (measured harmful in the unseen-country simulation)
             skip = set(cfg.get("decision", {}).get("shift_skip_countries", []))
+            # D-032: a fixed logit shift per country (tuned on the leaderboard for a country without labels) wins
+            fixed = dict(cfg.get("decision", {}).get("shift_fixed", {}) or {})
             shifts: dict[str, Any] = {}
             for code, name in groups:
                 m = np.ones(len(p), dtype=bool) if code < 0 else cc == code
                 test_prior, _ = em_prior_shift(p_cal[is_best & m], train_prior)
-                delta = 0.0 if name in skip else logit(test_prior) - logit(train_prior)
+                delta = (float(fixed[name]) if name in fixed
+                         else 0.0 if name in skip else logit(test_prior) - logit(train_prior))
                 pair_shift[m] += delta
                 shifts[name] = {"test_prior_em": test_prior, "logit_delta": delta, "pairs": int(m.sum())}
             info.update(train_prior=train_prior, prior_shift_by_country=shifts)
