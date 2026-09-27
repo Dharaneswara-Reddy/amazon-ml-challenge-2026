@@ -9,3 +9,5 @@
 | `20260926T114709_10acc83_99304c0b_v5` | expected_f | 0.9882 | 0.9862 / 0.9863 | 0.9783 | |
 | `stage3_all3ctx` (v5 + e5/bge/qwen stage 3 + per-S1 rank/gap context of each score; not adopted, +0.00004 = noise) | threshold | 0.98942 | | | |
 | `stage3_all3rctx` (v5 + e5/bge/qwen stage 3 + S1-side and record-side competition of every score, empty-address and source flags; D-029) | threshold | 0.98972 | | | |
+| `stage3_final_iu` (v5 + stage 3 --ctx, e5 first + extended band, bge, qwen; fixed row order; holdout-lid rival rows excluded) | expected_f | 0.98971 | | | India/US rows of #14 |
+| `stage3_final_fr` (v5 + stage 3 without ctx, first-band e5/bge/qwen; as #12 with fixed row order) | threshold | 0.98934 | | | France rows of #14 |

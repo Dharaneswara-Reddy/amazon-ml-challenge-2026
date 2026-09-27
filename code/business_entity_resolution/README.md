@@ -54,10 +54,25 @@ python code/business_entity_resolution/ce/export_bundle.py artifacts/runs/<run> 
 python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <stage3_dir> e5=<e5_out> bge=<bge_out> qwen=<qwen_out>
 ber --override code/business_entity_resolution/configs/predict_bigmem.yaml predict --run artifacts/runs/<run> --stage3 <stage3_dir>
 ber validate-output --check-ids
+
+# S8 final submission (#14, D-029): e5 re-scores the pairs just outside its first band with the saved fine-tuned model
+python code/business_entity_resolution/ce/export_ext.py artifacts/runs/<run> <e5_ext_bundle> 0.003 0.997 1e-4 0.9999 France India US
+#   run ce/ce_colab_e5_ext.ipynb on a GPU (reads the model saved by ce_colab.ipynb) -> <e5_ext_out>/ce_*.parquet
+#   India/US: stage 3 with competition context and both e5 bands
+python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <s3_iu> --ctx e5=<e5_out>+<e5_ext_out> bge=<bge_out> qwen=<qwen_out>
+ber --override code/business_entity_resolution/configs/predict_bigmem.yaml predict --run artifacts/runs/<run> --stage3 <s3_iu>
+mkdir -p <out_iu> && cp output/*.tsv <out_iu>/
+#   France: stage 3 without context on the first-band scores (as #12)
+python code/business_entity_resolution/ce/stage3.py artifacts/runs/<run> <s3_fr> e5=<e5_out> bge=<bge_out> qwen=<qwen_out>
+ber --override code/business_entity_resolution/configs/predict_bigmem.yaml predict --run artifacts/runs/<run> --stage3 <s3_fr>
+mkdir -p <out_fr> && cp output/*.tsv <out_fr>/
+#   merge per country (decisions never cross countries) -> output/*.tsv
+python code/business_entity_resolution/ce/merge_by_country.py <out_iu> <out_fr> output France
+ber validate-output --check-ids
 ```
 The e5 bundle used band 0.003 < p < 0.997 (`export_bundle.py <run> <dir> 600000`), the bge bundle 0.001 < p < 0.999,
-the Qwen bundle 0.01 < p < 0.99. The best leaderboard submission (#12, public 0.985004, local holdout 0.98937) is v5
-(`ber train --name v5`) + stage 3 with all three cross-encoders.
+the Qwen bundle 0.01 < p < 0.99. The final submission (#14) is v5 (`ber train --name v5`) + S7 + S8; India/US stage 3
+holdout 0.98971 (#12: public 0.985004, holdout 0.98937).
 
 `scripts/run_v4.sh all` runs S3 → S6 and freezes the submission (after S1, S2 and S2b); `scripts/run_v3.sh all` runs
 S2b. Each stage is resumable (`train --resume <run>`, `predict --resume`). `ber learn-logodds` (label-learned
