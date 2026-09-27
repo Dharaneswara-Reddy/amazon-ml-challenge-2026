@@ -1,0 +1,10 @@
+# variant x predict settings with a fixed France logit shift of -0.8 (D-032; India/US keep their EM shift)
+engine:
+  duckdb_memory_limit: 9GB
+  duckdb_threads: 6
+blocking:
+  variant: x
+  v3_hs_crowd_cap: 500
+  v3_hs_crowd_k: 3
+decision:
+  shift_fixed: {France: -0.8}
