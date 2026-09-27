@@ -12,6 +12,8 @@ tune, holdout and test.
 
 With --s2feats=a,b,... those columns of RUN_DIR/s2_<g>.parquet (stage-2 input features) are added too.
 
+A model's scores may come from several dirs joined by '+' (e.g. e5=first_band+extended_band, D-029).
+
 Usage: python stage3.py RUN_DIR OUT_DIR [--ctx] [--s2feats=a,b] name1=CE_DIR1 [name2=CE_DIR2 ...]
   CE_DIRk holds ce_tune.parquet, ce_holdout.parquet[, ce_test.parquet] (lid, rid, ce).
 Writes OUT_DIR/{pred2_tune,pred2_holdout[,pred2_test]}.parquet (lid, rid, p[, label]), decision_params.json,
@@ -63,6 +65,11 @@ def ctx_sql(scores: list[str]) -> tuple[str, list[str]]:
 CTX_FLAGS = ["r_ae", "r_s3"]
 
 
+def ce_files(d: Path, g: str) -> str:
+    """SQL list of a model's ce_<g>.parquet files; d may join several dirs with '+' (disjoint p bands of one model)."""
+    return "[" + ", ".join(f"'{Path(x) / f'ce_{g}.parquet'}'" for x in str(d).split("+")) + "]"
+
+
 def frame(con: duckdb.DuckDBPyConnection, pred2: Path, ce: dict[str, Path], g: str, ctx: bool = False,
           s2feats: list[str] | None = None) -> pa.Table:
     """Pairs of pred2_<g> (all rows) with logit(p2) and each model's ce score (NaN outside its band);
@@ -72,7 +79,7 @@ def frame(con: duckdb.DuckDBPyConnection, pred2: Path, ce: dict[str, Path], g: s
 
 def frame_sql(pred2: Path, ce: dict[str, Path], g: str, ctx: bool = False, s2feats: list[str] | None = None) -> str:
     """SQL of frame() (see there)."""
-    joins = " ".join(f"LEFT JOIN read_parquet('{d / f'ce_{g}.parquet'}') c_{n} ON c_{n}.lid = p.lid AND c_{n}.rid = p.rid"
+    joins = " ".join(f"LEFT JOIN read_parquet({ce_files(d, g)}) c_{n} ON c_{n}.lid = p.lid AND c_{n}.rid = p.rid"
                      for n, d in ce.items())
     cols = ", ".join(f"c_{n}.ce AS ce_{n}" for n in ce)
     lab = ", p.label" if g != "test" else ""
@@ -85,14 +92,15 @@ def frame_sql(pred2: Path, ce: dict[str, Path], g: str, ctx: bool = False, s2fea
             (md5_number(p.lid) % 5)::INT AS fold
         FROM read_parquet('{pred2}') p {joins}"""
     if not ctx:
-        return base
+        return base + " ORDER BY p.lid, p.rid"  # fixed row order: LightGBM bagging is then reproducible
     split = "test" if g == "test" else "train"
     raw = ", ".join(f"'{C / f'raw_{split}_s{k}.parquet'}'" for k in (2, 3))
     extra, _ = ctx_sql(["lg2"] + [f"ce_{n}" for n in ce])
     return f"""SELECT q.*, {extra},
             (coalesce(r.business_address, '') = '')::INT AS r_ae, starts_with(q.rid, 'S3-')::INT AS r_s3
         FROM ({base}) q JOIN read_parquet([{raw}]) r ON r.entity_id = q.rid
-        WINDOW l AS (PARTITION BY q.lid), r AS (PARTITION BY q.rid)"""
+        WINDOW l AS (PARTITION BY q.lid), r AS (PARTITION BY q.rid)
+        ORDER BY q.lid, q.rid"""
 
 
 def matrix(t: pa.Table, feats: list[str]) -> np.ndarray:
@@ -153,7 +161,7 @@ def main(run: Path, out: Path, ce: dict[str, Path], ctx: bool = False, s2feats: 
     (out / "stage3.json").write_text(json.dumps(res, indent=1, default=float))
     print(json.dumps(res, indent=1, default=float), flush=True)
     del tu, ho, x_tu, x_ho, arr  # free memory before the 19M-row test frame
-    if all((d / "ce_test.parquet").exists() for d in ce.values()):
+    if all((Path(x) / "ce_test.parquet").exists() for d in ce.values() for x in str(d).split("+")):
         predict_test(con, frame_sql(run / "pred2_test.parquet", ce, "test", ctx, s2feats), final, feats, out)
         res["test_written"] = True
         (out / "stage3.json").write_text(json.dumps(res, indent=1, default=float))
