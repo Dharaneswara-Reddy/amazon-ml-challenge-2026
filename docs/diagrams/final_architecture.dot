@@ -1,8 +1,8 @@
-// Final architecture of the submitted solution (#14 final, local holdout 0.98971; #12 public 0.985004).
+// Final architecture of the submitted solution (#20 final: public 0.986182, local holdout 0.99008).
 // Render: dot -Tpng -Gdpi=180 final_architecture.dot -o final_architecture.png
 digraph arch {
   graph [rankdir=TB, fontname="Helvetica", fontsize=22, labelloc=t, nodesep=0.35, ranksep=0.45, pad=0.4,
-         label=<<B>Business Entity Resolution — final architecture</B><BR/><FONT POINT-SIZE="15">Amazon ML Challenge 2026 · final submission #14 · local holdout 0.98971 (India/US) · #12 public 0.985004</FONT>>];
+         label=<<B>Business Entity Resolution — final architecture</B><BR/><FONT POINT-SIZE="15">Amazon ML Challenge 2026 · final submission #20 · public macro F0.5 0.986182 · local holdout 0.99008 (India/US)</FONT>>];
   node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=13, penwidth=1.4, margin="0.18,0.08"];
   edge  [color="#555555", penwidth=1.4, arrowsize=0.8, fontname="Helvetica", fontsize=11];
 
@@ -16,8 +16,8 @@ digraph arch {
   subgraph cluster_block {
     label=<<B>2 · Candidate generation (blocking)</B>>; style="rounded,filled"; fillcolor="#f3fbf4"; color="#a5d6a7"; fontsize=15;
     b2 [label=<<B>Blocking v2</B><BR/>IDF token pass · char-trigram pass<BR/>6 sorted-neighbourhood keys · name-only window<BR/>linear ranker → top-3 per record>, fillcolor="#e8f5e9", color="#66bb6a"];
-    b3 [label=<<B>Blocking v3 · compound keys</B><BR/>name-prefix × address token · number × street word<BR/>name-word pairs · name × address word · phonetic name<BR/><FONT POINT-SIZE="11">rare combinations of common tokens</FONT>>, fillcolor="#e8f5e9", color="#66bb6a"];
-    cut [label=<<B>Learned cut</B> (LightGBM)<BR/>keep linear top-1 OR p ≥ 0.001<BR/><B>recall 98.2%</B> · 8.1 candidates / S1 (train) · 18.9 M test pairs>, fillcolor="#c8e6c9", color="#43a047"];
+    b3 [label=<<B>Blocking v3 · compound keys</B><BR/>name-prefix × address token · number × street word<BR/>name-word pairs · name × address word · phonetic name<BR/><B>+ crowded keys:</B> number × word shared by 50–500 businesses,<BR/>ranked by name similarity (short addresses)>, fillcolor="#e8f5e9", color="#66bb6a"];
+    cut [label=<<B>Learned cut</B> (LightGBM)<BR/>keep linear top-1 OR p ≥ 0.001<BR/><B>recall 98.3%</B> · 8.2 candidates / S1 (train) · 19.4 M test pairs>, fillcolor="#c8e6c9", color="#43a047"];
     {rank=same; b2; b3}
   }
 
@@ -35,14 +35,14 @@ digraph arch {
     s1 [label=<<B>Stage 1 · LightGBM</B><BR/>147 features · lr 0.2 · early stop on tune<BR/>+ out-of-fold predictions for stacking>, fillcolor="#f3e5f5", color="#ab47bc"];
     s2 [label=<<B>Stage 2 · LightGBM (stacking)</B><BR/>competition features: margin over the record's rivals,<BR/>rank and gaps within the business, entity sums>, fillcolor="#f3e5f5", color="#ab47bc"];
     ce [label=<<B>Cross-encoders on uncertain pairs</B> (GPU notebooks, fine-tuned on train only)<BR/>multilingual-e5-small (MIT, 118 M) · 1.7 M pairs + 2.1 M wider band<BR/>bge-reranker-v2-m3 (Apache-2.0, 568 M) · 2.2 M pairs<BR/>Qwen2.5-1.5B-Instruct + LoRA classifier (Apache-2.0, 1.54 B)>, fillcolor="#ede7f6", color="#7e57c2"];
-    s3 [label=<<B>Stage 3 · LightGBM combiner</B><BR/>logit(stage-2 p) + three cross-encoder scores<BR/>+ competition context: rank / gap vs rivals<BR/>within the business and within the record<BR/>cross-fitted on the tune group · France: #12 combiner, merged per country>, fillcolor="#e1bee7", color="#8e24aa"];
+    s3 [label=<<B>Stage 3 · LightGBM combiner</B><BR/>logit(stage-2 p) + three cross-encoder scores<BR/>+ competition context: rank / gap vs rivals<BR/>within the business and within the record<BR/>cross-fitted on the tune group (5 folds by business)>, fillcolor="#e1bee7", color="#8e24aa"];
   }
 
   subgraph cluster_dec {
     label=<<B>5 · Decision (macro F0.5)</B>>; style="rounded,filled"; fillcolor="#fdf3f3"; color="#ef9a9a"; fontsize=15;
     oto [label=<<B>One-to-one</B><BR/>each record goes to its best business>, fillcolor="#ffebee", color="#ef5350"];
     rule [label=<<B>Decision rule chosen on tune</B><BR/>global threshold vs expected-F0.5 top-k per business<BR/>(isotonic calibration, singleton model)>, fillcolor="#ffebee", color="#ef5350"];
-    shift [label=<<B>Per-country EM prior shift</B><BR/>India/US corrected for more distractors in test<BR/>France: no shift (unseen country)>, fillcolor="#ffebee", color="#ef5350"];
+    shift [label=<<B>Per-country prior correction</B><BR/>test has more distractors than train<BR/>India / US: EM estimate · France: logit −1.5>, fillcolor="#ffebee", color="#ef5350"];
   }
 
   out [label=<<B>output/matching_results.tsv</B> + <B>output/candidate_pairs.tsv</B><BR/>1,732,544 rows · validated by the organizer validator>, fillcolor="#eceff1", color="#607d8b"];
